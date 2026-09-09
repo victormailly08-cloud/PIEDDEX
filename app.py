@@ -1,10 +1,9 @@
 import streamlit as st
-import random
-import os
-import json
+from supabase import create_client
 from datetime import datetime
-from pathlib import Path
-
+import random
+import uuid
+import time
 
 # ============================================================
 # CONFIGURATION
@@ -13,822 +12,747 @@ from pathlib import Path
 st.set_page_config(
     page_title="PiedDex",
     page_icon="🦶",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-DATA_FOLDER = Path("pieddex_data")
-PHOTOS_FOLDER = DATA_FOLDER / "photos"
-DATABASE_FILE = DATA_FOLDER / "captures.json"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
-DATA_FOLDER.mkdir(exist_ok=True)
-PHOTOS_FOLDER.mkdir(exist_ok=True)
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-if not DATABASE_FILE.exists():
-    with open(DATABASE_FILE, "w", encoding="utf-8") as f:
-        json.dump([], f)
+BUCKET = "pieddex-photos"
 
 
 # ============================================================
-# FONCTIONS DE DONNÉES
+# SESSION
 # ============================================================
 
-def load_captures():
-    try:
-        with open(DATABASE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return []
+if "user" not in st.session_state:
+    st.session_state.user = None
 
+if "access_token" not in st.session_state:
+    st.session_state.access_token = None
 
-def save_captures(captures):
-    with open(DATABASE_FILE, "w", encoding="utf-8") as f:
-        json.dump(
-            captures,
-            f,
-            ensure_ascii=False,
-            indent=4
-        )
+if "refresh_token" not in st.session_state:
+    st.session_state.refresh_token = None
 
+if "analyse" not in st.session_state:
+    st.session_state.analyse = None
 
-# ============================================================
-# SYSTÈME DE RARETÉ
-# ============================================================
+if "analyse_nom" not in st.session_state:
+    st.session_state.analyse_nom = None
 
-def generate_rarity():
-
-    scores = [
-        1, 2, 3,
-        4, 5,
-        6, 7,
-        8,
-        9,
-        10
-    ]
-
-    # Plus le score est élevé,
-    # plus il est difficile à obtenir.
-    weights = [
-        8, 11, 14,
-        15, 15,
-        13, 10,
-        7,
-        4,
-        1
-    ]
-
-    return random.choices(
-        scores,
-        weights=weights,
-        k=1
-    )[0]
-
-
-def rarity_name(score):
-
-    if score <= 3:
-        return "COMMUN"
-
-    elif score <= 5:
-        return "PEU COMMUN"
-
-    elif score <= 7:
-        return "RARE"
-
-    elif score == 8:
-        return "ÉPIQUE"
-
-    elif score == 9:
-        return "LÉGENDAIRE"
-
-    else:
-        return "MYTHIQUE"
-
-
-def rarity_emoji(score):
-
-    if score <= 3:
-        return "◇"
-
-    elif score <= 5:
-        return "◆"
-
-    elif score <= 7:
-        return "✦"
-
-    elif score == 8:
-        return "✦✦"
-
-    elif score == 9:
-        return "★"
-
-    else:
-        return "✺"
-
-
-def rarity_style(score):
-
-    if score <= 3:
-
-        return {
-            "color": "#C9D2E3",
-            "border": "#8996AA",
-            "background": "#141922",
-            "glow": "rgba(190, 205, 225, 0.22)"
-        }
-
-    elif score <= 5:
-
-        return {
-            "color": "#63E69B",
-            "border": "#3FC879",
-            "background": "#0D2118",
-            "glow": "rgba(63, 200, 121, 0.32)"
-        }
-
-    elif score <= 7:
-
-        return {
-            "color": "#5CB7FF",
-            "border": "#388FE5",
-            "background": "#0C1D31",
-            "glow": "rgba(56, 143, 229, 0.38)"
-        }
-
-    elif score == 8:
-
-        return {
-            "color": "#C58CFF",
-            "border": "#9B57E9",
-            "background": "#211038",
-            "glow": "rgba(176, 92, 255, 0.48)"
-        }
-
-    elif score == 9:
-
-        return {
-            "color": "#FFD65C",
-            "border": "#E7AC24",
-            "background": "#332409",
-            "glow": "rgba(255, 200, 61, 0.56)"
-        }
-
-    else:
-
-        return {
-            "color": "#FF78D0",
-            "border": "#F348B6",
-            "background": "#351126",
-            "glow": "rgba(255, 82, 190, 0.68)"
-        }
+if "analyse_photo" not in st.session_state:
+    st.session_state.analyse_photo = None
 
 
 # ============================================================
-# SUPPRESSION
-# ============================================================
-
-def delete_capture(capture_id):
-
-    captures = load_captures()
-
-    target = next(
-        (
-            capture
-            for capture in captures
-            if capture["id"] == capture_id
-        ),
-        None
-    )
-
-    if target:
-
-        photo_path = target.get("photo")
-
-        if photo_path and os.path.exists(photo_path):
-
-            try:
-                os.remove(photo_path)
-            except:
-                pass
-
-    captures = [
-        capture
-        for capture in captures
-        if capture["id"] != capture_id
-    ]
-
-    save_captures(captures)
-
-
-# ============================================================
-# CSS GLOBAL
+# DESIGN
 # ============================================================
 
 st.markdown(
     """
-    <style>
+<style>
 
-    /* ======================================================
-       PAGE
-    ====================================================== */
+/* ------------------------------------------------------------
+   BASE
+------------------------------------------------------------ */
 
-    html,
-    body {
-        overflow-x: hidden !important;
-        max-width: 100vw !important;
-    }
+.stApp {
+    background:
+        radial-gradient(circle at 50% 0%, #26365e 0%, #121a32 30%, #080d1b 75%);
+    color: white;
+}
 
-    [data-testid="stAppViewContainer"] {
+.block-container {
+    max-width: 1050px;
+    padding-top: 1.1rem;
+    padding-bottom: 5rem;
+}
 
-        overflow-x: hidden !important;
+header[data-testid="stHeader"] {
+    background: transparent;
+}
 
-        background:
-            radial-gradient(
-                circle at 50% -10%,
-                #25375c 0%,
-                #111725 32%,
-                #090c12 70%
-            );
+#MainMenu {
+    visibility: hidden;
+}
 
-        -webkit-overflow-scrolling: touch !important;
-    }
+footer {
+    visibility: hidden;
+}
 
-    [data-testid="stMain"] {
-        overflow-x: hidden !important;
-    }
+
+/* ------------------------------------------------------------
+   LOGO
+------------------------------------------------------------ */
+
+.logo {
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.logo-main {
+    font-size: clamp(38px, 10vw, 68px);
+    font-weight: 1000;
+    letter-spacing: -3px;
+    color: #ffd83d;
+    text-shadow:
+        0 3px 0 #cb8712,
+        0 6px 0 #3a4a91,
+        0 8px 15px rgba(0,0,0,.55);
+}
+
+.logo-sub {
+    color: #9eb1db;
+    font-size: 12px;
+    letter-spacing: 4px;
+    font-weight: 800;
+    margin-top: -5px;
+}
+
+
+/* ------------------------------------------------------------
+   PANNEAUX
+------------------------------------------------------------ */
+
+.panel {
+    background:
+        linear-gradient(145deg, rgba(32,45,82,.96), rgba(13,21,43,.96));
+    border: 1px solid rgba(144,173,235,.25);
+    border-radius: 22px;
+    padding: 20px;
+    box-shadow:
+        inset 0 1px rgba(255,255,255,.08),
+        0 15px 35px rgba(0,0,0,.35);
+    margin: 12px 0;
+}
+
+.scan-title {
+    text-align: center;
+    color: #ffd84a;
+    font-weight: 1000;
+    font-size: 23px;
+    letter-spacing: 1px;
+}
+
+.scan-sub {
+    text-align: center;
+    color: #91a5d1;
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+
+/* ------------------------------------------------------------
+   BOUTONS
+------------------------------------------------------------ */
+
+.stButton > button {
+    width: 100%;
+    border-radius: 14px;
+    min-height: 44px;
+    font-weight: 900;
+    border: 1px solid rgba(255,255,255,.16);
+    background: linear-gradient(180deg,#263a6a,#182746);
+    color: white;
+    box-shadow: 0 5px 13px rgba(0,0,0,.25);
+}
+
+.stButton > button:hover {
+    border-color: #ffd83d;
+    color: #ffd83d;
+    transform: translateY(-1px);
+}
+
+div[data-testid="stFormSubmitButton"] button {
+    background: linear-gradient(180deg,#ffd943,#e3a514);
+    color: #17203a;
+    border: none;
+}
+
+
+/* ------------------------------------------------------------
+   INPUTS
+------------------------------------------------------------ */
+
+.stTextInput input {
+    background: #0c1428;
+    border: 1px solid #344979;
+    color: white;
+    border-radius: 12px;
+}
+
+.stTextInput input:focus {
+    border-color: #ffd83d;
+}
+
+
+/* ------------------------------------------------------------
+   RARETÉS
+------------------------------------------------------------ */
+
+.common {
+    color: #b8c2d8;
+}
+
+.uncommon {
+    color: #68d391;
+}
+
+.rare {
+    color: #56b9ff;
+}
+
+.epic {
+    color: #bd7cff;
+}
+
+.legendary {
+    color: #ffd83d;
+}
+
+
+/* ------------------------------------------------------------
+   CARTE ANALYSE
+------------------------------------------------------------ */
+
+.result-card {
+    border-radius: 23px;
+    padding: 5px;
+    margin: 15px 0;
+}
+
+.result-inner {
+    border-radius: 19px;
+    padding: 20px;
+    background: linear-gradient(145deg,#182746,#0b1327);
+    text-align: center;
+}
+
+.result-name {
+    font-size: 27px;
+    font-weight: 1000;
+}
+
+.result-score {
+    font-size: 58px;
+    font-weight: 1000;
+    line-height: 1;
+    margin: 8px;
+}
+
+.result-rarity {
+    font-size: 18px;
+    font-weight: 1000;
+    letter-spacing: 2px;
+}
+
+
+/* ------------------------------------------------------------
+   GALERIE
+------------------------------------------------------------ */
+
+.gallery-title {
+    font-size: 25px;
+    font-weight: 1000;
+    color: white;
+    margin-top: 12px;
+}
+
+.gallery-count {
+    color: #95a9d5;
+    font-size: 13px;
+    margin-bottom: 12px;
+}
+
+
+/* ------------------------------------------------------------
+   MOBILE
+------------------------------------------------------------ */
+
+@media (max-width: 600px) {
 
     .block-container {
-
-        max-width: 900px !important;
-
-        padding-top: 0.6rem !important;
-        padding-bottom: 8rem !important;
+        padding-left: .55rem;
+        padding-right: .55rem;
+        padding-top: .4rem;
     }
 
-    #MainMenu {
-        visibility: hidden;
+    .logo-main {
+        font-size: 45px;
     }
 
-    footer {
-        visibility: hidden;
+    .logo-sub {
+        font-size: 9px;
     }
-
-    header {
-        background: transparent !important;
-    }
-
-
-    /* ======================================================
-       TITRES
-    ====================================================== */
-
-    h1 {
-
-        font-weight: 950 !important;
-
-        letter-spacing: 1px !important;
-    }
-
-    h2,
-    h3 {
-
-        font-weight: 900 !important;
-    }
-
-
-    /* ======================================================
-       ONGLETS
-    ====================================================== */
-
-    div[data-baseweb="tab-list"] {
-
-        gap: 5px !important;
-
-        padding: 4px !important;
-
-        border-radius: 16px !important;
-
-        background:
-            rgba(15, 21, 33, 0.80) !important;
-
-        border:
-            1px solid rgba(255,255,255,0.08) !important;
-    }
-
-    button[data-baseweb="tab"] {
-
-        font-weight: 850 !important;
-
-        border-radius: 12px !important;
-
-        min-height: 44px !important;
-    }
-
-
-    /* ======================================================
-       BOUTONS
-    ====================================================== */
 
     .stButton > button {
-
-        width: 100%;
-
-        border-radius: 11px !important;
-
-        font-weight: 800 !important;
-
-        transition:
-            transform 0.15s ease,
-            filter 0.15s ease !important;
+        min-height: 39px;
+        padding-left: 3px;
+        padding-right: 3px;
+        font-size: 12px;
     }
 
-    .stButton > button:active {
-
-        transform: scale(0.97);
+    div[data-testid="stImage"] img {
+        border-radius: 10px;
     }
+}
 
-
-    /* ======================================================
-       CAMÉRA
-    ====================================================== */
-
-    [data-testid="stCameraInput"] {
-
-        border-radius: 18px !important;
-    }
-
-
-    /* ======================================================
-       GRILLE COLLECTION MOBILE
-    ====================================================== */
-
-    @media (max-width: 700px) {
-
-        .block-container {
-
-            padding-left: 10px !important;
-            padding-right: 10px !important;
-        }
-
-
-        .st-key-collection_grid
-        div[data-testid="stHorizontalBlock"] {
-
-            display: grid !important;
-
-            grid-template-columns:
-                repeat(4, minmax(0, 1fr)) !important;
-
-            gap: 7px !important;
-
-            width: 100% !important;
-
-            overflow: visible !important;
-        }
-
-
-        .st-key-collection_grid
-        div[data-testid="stHorizontalBlock"]
-        > div[data-testid="column"] {
-
-            width: 100% !important;
-
-            min-width: 0 !important;
-
-            flex: none !important;
-        }
-
-
-        /* Miniatures */
-
-        .st-key-collection_grid img {
-
-            width: 100% !important;
-
-            height: 76px !important;
-
-            object-fit: cover !important;
-
-            border-radius: 9px !important;
-        }
-
-
-        /* Texte dans les mini-cartes */
-
-        .st-key-collection_grid p {
-
-            font-size: 9px !important;
-
-            line-height: 1.05 !important;
-
-            margin-top: 1px !important;
-            margin-bottom: 1px !important;
-
-            white-space: nowrap !important;
-
-            overflow: hidden !important;
-
-            text-overflow: ellipsis !important;
-        }
-
-
-        /* Bouton Voir */
-
-        .st-key-collection_grid
-        .stButton > button {
-
-            min-height: 27px !important;
-
-            height: 27px !important;
-
-            padding: 0px 1px !important;
-
-            font-size: 9px !important;
-
-            border-radius: 7px !important;
-        }
-
-    }
-
-
-    /* ======================================================
-       DESKTOP
-    ====================================================== */
-
-    @media (min-width: 701px) {
-
-        .st-key-collection_grid img {
-
-            width: 100% !important;
-
-            height: 150px !important;
-
-            object-fit: cover !important;
-
-            border-radius: 11px !important;
-        }
-
-    }
-
-    </style>
-    """,
+</style>
+""",
     unsafe_allow_html=True
 )
 
 
 # ============================================================
-# CSS DYNAMIQUE POUR UNE CARTE
+# FONCTIONS
 # ============================================================
 
-def inject_card_style(capture):
-
-    style = rarity_style(capture["score"])
-
-    card_key = f"card_{capture['id']}"
-    score_key = f"score_{capture['id']}"
-
-    css = f"""
-    <style>
-
-    .st-key-{card_key} {{
-
-        background:
-            linear-gradient(
-                145deg,
-                {style["background"]},
-                #090C12
-            ) !important;
-
-        border:
-            1px solid {style["border"]} !important;
-
-        border-radius:
-            13px !important;
-
-        padding:
-            4px !important;
-
-        box-shadow:
-            0 0 0 1px
-                color-mix(
-                    in srgb,
-                    {style["border"]} 25%,
-                    transparent
-                ),
-            0 0 14px
-                {style["glow"]},
-            0 8px 20px
-                rgba(0,0,0,0.28) !important;
-
-        overflow:
-            hidden !important;
-    }}
-
-
-    .st-key-{card_key} img {{
-
-        border:
-            1px solid
-            color-mix(
-                in srgb,
-                {style["border"]} 55%,
-                transparent
-            ) !important;
-    }}
-
-
-    .st-key-{score_key} p {{
-
-        color:
-            {style["color"]} !important;
-
-        font-weight:
-            900 !important;
-
-        text-shadow:
-            0 0 8px
-            {style["glow"]} !important;
-    }}
-
-
-    .st-key-{card_key}
-    .stButton > button {{
-
-        background:
-            linear-gradient(
-                145deg,
-                {style["background"]},
-                #10141C
-            ) !important;
-
-        border:
-            1px solid
-            {style["border"]} !important;
-
-        color:
-            {style["color"]} !important;
-
-        box-shadow:
-            0 0 7px
-            {style["glow"]} !important;
-    }}
-
-    </style>
-    """
-
+def logo():
     st.markdown(
-        css,
-        unsafe_allow_html=True
-    )
-
-
-# ============================================================
-# CSS DYNAMIQUE POUR L'ANALYSE
-# ============================================================
-
-def inject_analysis_style(capture_id, score):
-
-    style = rarity_style(score)
-
-    analysis_key = f"analysis_{capture_id}"
-
-    css = f"""
-    <style>
-
-    .st-key-{analysis_key} {{
-
-        background:
-            radial-gradient(
-                circle at 50% 20%,
-                {style["glow"]},
-                transparent 45%
-            ),
-            linear-gradient(
-                145deg,
-                {style["background"]},
-                #090C12
-            ) !important;
-
-        border:
-            2px solid
-            {style["border"]} !important;
-
-        border-radius:
-            22px !important;
-
-        padding:
-            18px !important;
-
-        margin-top:
-            12px !important;
-
-        box-shadow:
-            0 0 0 1px
-                {style["border"]},
-            0 0 26px
-                {style["glow"]},
-            0 18px 35px
-                rgba(0,0,0,0.40) !important;
-    }}
-
-
-    .st-key-{analysis_key}
-    [data-testid="stMetricValue"] {{
-
-        color:
-            {style["color"]} !important;
-
-        font-weight:
-            950 !important;
-
-        text-shadow:
-            0 0 12px
-            {style["glow"]} !important;
-    }}
-
-
-    .st-key-{analysis_key}
-    [data-testid="stMetricLabel"] {{
-
-        color:
-            #C7D1E2 !important;
-
-        font-weight:
-            800 !important;
-    }}
-
-
-    .st-key-{analysis_key} h3 {{
-
-        color:
-            {style["color"]} !important;
-
-        text-shadow:
-            0 0 13px
-            {style["glow"]} !important;
-    }}
-
-    </style>
-    """
-
-    st.markdown(
-        css,
-        unsafe_allow_html=True
-    )
-
-
-# ============================================================
-# FICHE AGRANDIE
-# ============================================================
-
-@st.dialog("Fiche du spécimen")
-def show_specimen(capture):
-
-    style = rarity_style(
-        capture["score"]
-    )
-
-    popup_key = (
-        f"popup_{capture['id']}"
-    )
-
-    st.markdown(
-        f"""
-        <style>
-
-        .st-key-{popup_key} {{
-
-            border:
-                2px solid
-                {style["border"]} !important;
-
-            border-radius:
-                18px !important;
-
-            padding:
-                10px !important;
-
-            background:
-                linear-gradient(
-                    145deg,
-                    {style["background"]},
-                    #090C12
-                ) !important;
-
-            box-shadow:
-                0 0 22px
-                {style["glow"]} !important;
-        }}
-
-
-        .st-key-{popup_key}
-        [data-testid="stMetricValue"] {{
-
-            color:
-                {style["color"]} !important;
-        }}
-
-        </style>
+        """
+        <div class="logo">
+            <div class="logo-main">PIEDDEX</div>
+            <div class="logo-sub">COLLECTION DE SPÉCIMENS</div>
+        </div>
         """,
         unsafe_allow_html=True
     )
 
-    with st.container(
-        key=popup_key
+
+def set_session(session):
+    if not session:
+        return
+
+    st.session_state.user = session.user
+    st.session_state.access_token = session.access_token
+    st.session_state.refresh_token = session.refresh_token
+
+    supabase.auth.set_session(
+        session.access_token,
+        session.refresh_token
+    )
+
+
+def restore_session():
+    if (
+        st.session_state.access_token
+        and st.session_state.refresh_token
+    ):
+        try:
+            response = supabase.auth.set_session(
+                st.session_state.access_token,
+                st.session_state.refresh_token
+            )
+
+            if response and response.session:
+                set_session(response.session)
+
+        except Exception:
+            st.session_state.user = None
+            st.session_state.access_token = None
+            st.session_state.refresh_token = None
+
+
+def rarity(score):
+
+    if score <= 3:
+        return "COMMUN", "common", "#8b98ad"
+
+    elif score <= 5:
+        return "PEU COMMUN", "uncommon", "#52cf83"
+
+    elif score <= 7:
+        return "RARE", "rare", "#42aefa"
+
+    elif score <= 9:
+        return "ÉPIQUE", "epic", "#a96bff"
+
+    else:
+        return "LÉGENDAIRE", "legendary", "#ffd43b"
+
+
+def analyse_specimen():
+
+    # Pour l'instant il s'agit d'un tirage ludique.
+    # On pourra remplacer cette fonction par un modèle IA plus tard.
+
+    chances = [
+        1, 2, 3,
+        4, 4,
+        5, 5,
+        6, 6,
+        7, 7,
+        8, 8,
+        9,
+        10
+    ]
+
+    return random.choice(chances)
+
+
+def signed_photo(path):
+
+    try:
+        result = (
+            supabase.storage
+            .from_(BUCKET)
+            .create_signed_url(path, 3600)
+        )
+
+        if isinstance(result, dict):
+            return (
+                result.get("signedURL")
+                or result.get("signedUrl")
+                or result.get("signed_url")
+            )
+
+        return None
+
+    except Exception:
+        return None
+
+
+def get_captures():
+
+    try:
+
+        result = (
+            supabase.table("captures")
+            .select("*")
+            .order("date_capture", desc=True)
+            .execute()
+        )
+
+        return result.data or []
+
+    except Exception as e:
+        st.error(f"Impossible de charger le PiedDex : {e}")
+        return []
+
+
+def next_number():
+
+    captures = get_captures()
+
+    if not captures:
+        return 1
+
+    numbers = [
+        int(c["numero"])
+        for c in captures
+        if c.get("numero") is not None
+    ]
+
+    return max(numbers, default=0) + 1
+
+
+def save_capture(photo_bytes, nom, score):
+
+    user = st.session_state.user
+
+    if not user:
+        raise Exception("Utilisateur non connecté.")
+
+    rarete, _, _ = rarity(score)
+
+    extension = "jpg"
+
+    filename = (
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        f"_{uuid.uuid4().hex[:8]}.{extension}"
+    )
+
+    photo_path = f"{user.id}/{filename}"
+
+    # Envoi photo
+    supabase.storage.from_(BUCKET).upload(
+        path=photo_path,
+        file=photo_bytes,
+        file_options={
+            "content-type": "image/jpeg",
+            "upsert": "false"
+        }
+    )
+
+    numero = next_number()
+
+    try:
+
+        supabase.table("captures").insert({
+            "user_id": user.id,
+            "numero": numero,
+            "nom": nom,
+            "score": score,
+            "rarete": rarete,
+            "photo_path": photo_path
+        }).execute()
+
+    except Exception:
+
+        # Si l'insertion DB échoue, on retire la photo
+        try:
+            supabase.storage.from_(BUCKET).remove([photo_path])
+        except Exception:
+            pass
+
+        raise
+
+
+def delete_capture(capture):
+
+    try:
+
+        photo_path = capture.get("photo_path")
+
+        if photo_path:
+            supabase.storage.from_(BUCKET).remove([photo_path])
+
+        (
+            supabase.table("captures")
+            .delete()
+            .eq("id", capture["id"])
+            .execute()
+        )
+
+        st.success("Spécimen supprimé.")
+
+        time.sleep(.5)
+        st.rerun()
+
+    except Exception as e:
+        st.error(f"Suppression impossible : {e}")
+
+
+# ============================================================
+# AUTHENTIFICATION
+# ============================================================
+
+restore_session()
+
+
+def authentication():
+
+    logo()
+
+    st.markdown(
+        """
+        <div class="panel">
+            <div class="scan-title">ACCÈS DRESSEUR</div>
+            <div class="scan-sub">
+                Connecte-toi pour accéder à ta collection personnelle.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    login_tab, register_tab = st.tabs(
+        ["🔐 CONNEXION", "✨ CRÉER UN COMPTE"]
+    )
+
+    # ---------------- LOGIN ----------------
+
+    with login_tab:
+
+        with st.form("login_form"):
+
+            email = st.text_input(
+                "Email",
+                placeholder="toi@email.fr"
+            )
+
+            password = st.text_input(
+                "Mot de passe",
+                type="password"
+            )
+
+            login = st.form_submit_button(
+                "ENTRER DANS MON PIEDDEX",
+                width="stretch"
+            )
+
+        if login:
+
+            if not email or not password:
+                st.warning("Entre ton email et ton mot de passe.")
+
+            else:
+
+                try:
+
+                    response = supabase.auth.sign_in_with_password({
+                        "email": email.strip(),
+                        "password": password
+                    })
+
+                    set_session(response.session)
+
+                    st.success("Connexion réussie !")
+                    time.sleep(.4)
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(
+                        "Connexion impossible. Vérifie ton email "
+                        "et ton mot de passe."
+                    )
+
+    # ---------------- REGISTER ----------------
+
+    with register_tab:
+
+        with st.form("register_form"):
+
+            new_email = st.text_input(
+                "Ton email",
+                key="register_email"
+            )
+
+            new_password = st.text_input(
+                "Choisis un mot de passe",
+                type="password",
+                key="register_password"
+            )
+
+            confirm_password = st.text_input(
+                "Confirme le mot de passe",
+                type="password",
+                key="confirm_password"
+            )
+
+            register = st.form_submit_button(
+                "CRÉER MON COMPTE",
+                width="stretch"
+            )
+
+        if register:
+
+            if not new_email or not new_password:
+                st.warning("Remplis tous les champs.")
+
+            elif len(new_password) < 6:
+                st.warning(
+                    "Le mot de passe doit contenir au moins 6 caractères."
+                )
+
+            elif new_password != confirm_password:
+                st.warning("Les mots de passe ne correspondent pas.")
+
+            else:
+
+                try:
+
+                    response = supabase.auth.sign_up({
+                        "email": new_email.strip(),
+                        "password": new_password
+                    })
+
+                    if response.session:
+
+                        set_session(response.session)
+
+                        st.success("Compte créé !")
+                        time.sleep(.5)
+                        st.rerun()
+
+                    else:
+
+                        st.success(
+                            "Compte créé. Vérifie ton email si Supabase "
+                            "demande une confirmation."
+                        )
+
+                except Exception as e:
+                    st.error(f"Création du compte impossible : {e}")
+
+
+# ============================================================
+# APPLICATION
+# ============================================================
+
+if not st.session_state.user:
+
+    authentication()
+    st.stop()
+
+
+# Réapplique explicitement la session à ce client
+try:
+    supabase.auth.set_session(
+        st.session_state.access_token,
+        st.session_state.refresh_token
+    )
+except Exception:
+    pass
+
+
+logo()
+
+
+# ============================================================
+# BARRE UTILISATEUR
+# ============================================================
+
+user_email = st.session_state.user.email or "Dresseur"
+
+top1, top2 = st.columns([3, 1])
+
+with top1:
+    st.caption(f"🟢 Connecté : **{user_email}**")
+
+with top2:
+
+    if st.button(
+        "Déconnexion",
+        width="stretch"
     ):
 
-        if os.path.exists(
-            capture["photo"]
-        ):
+        try:
+            supabase.auth.sign_out()
+        except Exception:
+            pass
 
-            st.image(
-                capture["photo"],
-                use_container_width=True
-            )
+        st.session_state.user = None
+        st.session_state.access_token = None
+        st.session_state.refresh_token = None
+        st.session_state.analyse = None
+        st.session_state.analyse_nom = None
+        st.session_state.analyse_photo = None
 
-        st.markdown(
-            f"### #{capture['numero']:03d} — "
-            f"{capture['nom']}"
-        )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            st.metric(
-                "Rareté",
-                f"{capture['score']}/10"
-            )
-
-        with col2:
-
-            st.metric(
-                "Classe",
-                capture["rarete"]
-            )
-
-        st.write(
-            f"{rarity_emoji(capture['score'])} "
-            f"**{capture['rarete']}**"
-        )
-
-        st.caption(
-            f"Capturé le {capture['date']}"
-        )
-
-        st.divider()
-
-        if st.button(
-            "🗑️ Supprimer ce spécimen",
-            key=f"delete_{capture['id']}",
-            use_container_width=True
-        ):
-
-            delete_capture(
-                capture["id"]
-            )
-
-            st.rerun()
-
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.title(
-    "🦶 PIEDDEX"
-)
-
-st.caption(
-    "Collection personnelle de spécimens"
-)
+        st.rerun()
 
 
 # ============================================================
 # ONGLETS
 # ============================================================
 
-tab_capture, tab_collection = st.tabs(
-    [
-        "📸 CAPTURER",
-        "📚 MON PIEDDEX"
-    ]
-)
+capture_tab, collection_tab, profile_tab = st.tabs([
+    "📸 CAPTURER",
+    "📚 MON PIEDDEX",
+    "👤 PROFIL"
+])
 
 
 # ============================================================
-# ONGLET CAPTURE
+# CAPTURER
 # ============================================================
 
-with tab_capture:
+with capture_tab:
 
-    st.subheader(
-        "Scanner de spécimen"
-    )
-
-    st.info(
-        "Prends une photo du pied, "
-        "donne-lui un nom puis lance l'analyse."
+    st.markdown(
+        """
+        <div class="panel">
+            <div class="scan-title">SCANNER UN SPÉCIMEN</div>
+            <div class="scan-sub">
+                Photographie un nouveau spécimen pour tenter
+                de l'ajouter à ta collection.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     photo = st.camera_input(
@@ -839,427 +763,476 @@ with tab_capture:
 
         st.image(
             photo,
-            caption="Spécimen détecté",
-            use_container_width=True
+            width="stretch"
         )
 
         nom = st.text_input(
             "Nom du spécimen",
-            placeholder="Ex : Piedouille"
+            placeholder="Ex : Piedator, Jean-Pied, Patoche..."
         )
 
-        if st.button(
-            "🔍 ANALYSER LE SPÉCIMEN",
-            use_container_width=True
-        ):
+        analyse_button = st.button(
+            "⚡ ANALYSER LE SPÉCIMEN",
+            width="stretch"
+        )
+
+        if analyse_button:
 
             if not nom.strip():
 
                 st.warning(
-                    "Entre d'abord le nom du spécimen."
+                    "Donne d'abord un nom à ton spécimen."
                 )
 
             else:
 
-                # --------------------------------------------
-                # ANALYSE
-                # --------------------------------------------
-
                 with st.spinner(
-                    "Analyse du spécimen en cours..."
+                    "Analyse biométrique du spécimen..."
                 ):
 
-                    score = generate_rarity()
+                    time.sleep(1.1)
 
-                    rarete = rarity_name(
-                        score
+                    score = analyse_specimen()
+
+                    st.session_state.analyse = score
+                    st.session_state.analyse_nom = nom.strip()
+                    st.session_state.analyse_photo = photo.getvalue()
+
+        if (
+            st.session_state.analyse is not None
+            and st.session_state.analyse_photo is not None
+        ):
+
+            score = st.session_state.analyse
+            rarete, css_class, couleur = rarity(score)
+
+            st.markdown(
+                f"""
+                <div class="result-card"
+                     style="
+                     background:
+                     linear-gradient(
+                         135deg,
+                         {couleur},
+                         #ffffff,
+                         {couleur}
+                     );
+                     box-shadow:
+                     0 0 25px {couleur}55;
+                     ">
+                    <div class="result-inner">
+
+                        <div style="
+                            color:#94a9d7;
+                            font-size:11px;
+                            letter-spacing:3px;
+                            font-weight:900;">
+                            ANALYSE TERMINÉE
+                        </div>
+
+                        <div class="result-name">
+                            {st.session_state.analyse_nom.upper()}
+                        </div>
+
+                        <div class="result-score"
+                             style="color:{couleur};">
+                            {score}/10
+                        </div>
+
+                        <div class="result-rarity"
+                             style="color:{couleur};">
+                            {rarete}
+                        </div>
+
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            if score == 10:
+                st.balloons()
+
+            if st.button(
+                "💾 AJOUTER À MON PIEDDEX",
+                type="primary",
+                width="stretch"
+            ):
+
+                try:
+
+                    with st.spinner(
+                        "Capture du spécimen..."
+                    ):
+
+                        save_capture(
+                            st.session_state.analyse_photo,
+                            st.session_state.analyse_nom,
+                            st.session_state.analyse
+                        )
+
+                    st.session_state.analyse = None
+                    st.session_state.analyse_nom = None
+                    st.session_state.analyse_photo = None
+
+                    st.success(
+                        "✨ Nouveau spécimen ajouté à ton PiedDex !"
                     )
 
+                    time.sleep(.7)
+                    st.rerun()
 
-                # --------------------------------------------
-                # CRÉATION DE L'ID
-                # --------------------------------------------
+                except Exception as e:
 
-                capture_id = (
-                    datetime.now()
-                    .strftime(
-                        "%Y%m%d_%H%M%S_%f"
-                    )
-                )
-
-
-                # --------------------------------------------
-                # ENREGISTREMENT PHOTO
-                # --------------------------------------------
-
-                filepath = (
-                    PHOTOS_FOLDER /
-                    f"{capture_id}.jpg"
-                )
-
-                with open(
-                    filepath,
-                    "wb"
-                ) as f:
-
-                    f.write(
-                        photo.getbuffer()
-                    )
-
-
-                # --------------------------------------------
-                # NUMÉRO DU SPÉCIMEN
-                # --------------------------------------------
-
-                captures = load_captures()
-
-                numero = max(
-                    [
-                        c.get(
-                            "numero",
-                            0
-                        )
-                        for c in captures
-                    ],
-                    default=0
-                ) + 1
-
-
-                # --------------------------------------------
-                # DONNÉES
-                # --------------------------------------------
-
-                capture = {
-
-                    "id":
-                        capture_id,
-
-                    "numero":
-                        numero,
-
-                    "nom":
-                        nom.strip(),
-
-                    "score":
-                        score,
-
-                    "rarete":
-                        rarete,
-
-                    "photo":
-                        str(filepath),
-
-                    "date":
-                        datetime.now()
-                        .strftime(
-                            "%d/%m/%Y à %H:%M"
-                        )
-                }
-
-
-                captures.append(
-                    capture
-                )
-
-                save_captures(
-                    captures
-                )
-
-
-                # --------------------------------------------
-                # STYLE DU RÉSULTAT
-                # --------------------------------------------
-
-                inject_analysis_style(
-                    capture_id,
-                    score
-                )
-
-
-                # --------------------------------------------
-                # RÉVÉLATION
-                # --------------------------------------------
-
-                with st.container(
-                    key=f"analysis_{capture_id}"
-                ):
-
-                    st.caption(
-                        f"NOUVEAU SPÉCIMEN "
-                        f"#{numero:03d}"
-                    )
-
-                    st.subheader(
-                        f"{rarity_emoji(score)} "
-                        f"{nom.upper()}"
-                    )
-
-                    st.metric(
-                        "NOTE DE RARETÉ",
-                        f"{score}/10"
-                    )
-
-                    st.markdown(
-                        f"### {rarete}"
-                    )
-
-                    if score <= 3:
-
-                        st.write(
-                            "Un spécimen relativement "
-                            "commun, mais désormais "
-                            "répertorié dans ton PiedDex."
-                        )
-
-                    elif score <= 5:
-
-                        st.write(
-                            "Une capture intéressante. "
-                            "Ce spécimen se distingue "
-                            "déjà de la moyenne."
-                        )
-
-                    elif score <= 7:
-
-                        st.write(
-                            "Belle trouvaille ! "
-                            "Ce spécimen appartient "
-                            "à une catégorie rare."
-                        )
-
-                    elif score == 8:
-
-                        st.write(
-                            "⚡ Capture exceptionnelle ! "
-                            "Un spécimen épique vient "
-                            "d'être découvert."
-                        )
-
-                    elif score == 9:
-
-                        st.write(
-                            "✨ DÉCOUVERTE LÉGENDAIRE ! "
-                            "Très peu de captures "
-                            "atteignent cette rareté."
-                        )
-
-                    else:
-
-                        st.write(
-                            "🌟 SPÉCIMEN MYTHIQUE 🌟"
-                        )
-
-                        st.write(
-                            "Une capture extrêmement "
-                            "rare. Le sommet du PiedDex."
-                        )
-
-
-                # --------------------------------------------
-                # EFFETS
-                # --------------------------------------------
-
-                if score >= 8:
-
-                    st.balloons()
-
-                elif score >= 6:
-
-                    st.toast(
-                        "✦ Nouveau spécimen rare !"
+                    st.error(
+                        f"Impossible d'enregistrer le spécimen : {e}"
                     )
 
 
 # ============================================================
-# ONGLET MON PIEDDEX
+# COLLECTION
 # ============================================================
 
-with tab_collection:
+with collection_tab:
 
-    captures = load_captures()
+    captures = get_captures()
+
+    st.markdown(
+        '<div class="gallery-title">MON PIEDDEX</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        f"""
+        <div class="gallery-count">
+            {len(captures)} spécimen{"s" if len(captures) != 1 else ""}
+            capturé{"s" if len(captures) != 1 else ""}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     if not captures:
 
         st.info(
-            "Ton PiedDex est vide pour le moment."
+            "Ton PiedDex est vide. Va capturer ton premier spécimen !"
         )
 
     else:
 
-        st.subheader(
-            "Ma collection"
-        )
+        # ----------------------------------------------------
+        # 4 CARTES PAR LIGNE
+        # ----------------------------------------------------
 
-        st.caption(
-            f"{len(captures)} spécimen(s) découvert(s)"
-        )
+        for row_start in range(0, len(captures), 4):
 
+            row = captures[row_start:row_start + 4]
 
-        # ====================================================
-        # TRI
-        # ====================================================
-
-        sort_option = st.selectbox(
-            "Trier",
-            [
-                "Plus récentes",
-                "Plus anciennes",
-                "Rareté décroissante",
-                "Rareté croissante"
-            ]
-        )
-
-
-        if sort_option == "Plus récentes":
-
-            captures = captures[::-1]
-
-
-        elif sort_option == "Rareté décroissante":
-
-            captures = sorted(
-                captures,
-                key=lambda x:
-                    x["score"],
-                reverse=True
+            columns = st.columns(
+                4,
+                gap="small"
             )
 
+            for index, capture in enumerate(row):
 
-        elif sort_option == "Rareté croissante":
+                with columns[index]:
 
-            captures = sorted(
-                captures,
-                key=lambda x:
-                    x["score"]
-            )
+                    score = int(capture.get("score", 0))
+                    rarete, css_class, couleur = rarity(score)
 
-
-        st.divider()
-
-
-        # ====================================================
-        # GRILLE
-        # ====================================================
-
-        with st.container(
-            key="collection_grid"
-        ):
-
-            for i in range(
-                0,
-                len(captures),
-                4
-            ):
-
-                row = captures[
-                    i:i + 4
-                ]
-
-                cols = st.columns(
-                    4,
-                    gap="small"
-                )
-
-
-                for index, col in enumerate(
-                    cols
-                ):
-
-                    if index >= len(row):
-                        continue
-
-                    capture = row[index]
-
-
-                    # ----------------------------------------
-                    # STYLE DE LA CARTE
-                    # ----------------------------------------
-
-                    inject_card_style(
-                        capture
+                    url = signed_photo(
+                        capture.get("photo_path")
                     )
 
+                    # Bordure colorée autour de chaque spécimen
+                    st.markdown(
+                        f"""
+                        <div style="
+                            height:5px;
+                            border-radius:10px 10px 0 0;
+                            background:{couleur};
+                            box-shadow:0 0 10px {couleur};
+                        "></div>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
-                    with col:
-
-                        card_key = (
-                            f"card_{capture['id']}"
+                    if url:
+                        st.image(
+                            url,
+                            width="stretch"
                         )
+                    else:
+                        st.caption("Photo indisponible")
 
-                        score_key = (
-                            f"score_{capture['id']}"
+                    nom_capture = capture.get(
+                        "nom",
+                        "Sans nom"
+                    )
+
+                    st.markdown(
+                        f"""
+                        <div style="
+                            text-align:center;
+                            margin-top:-3px;
+                            line-height:1.1;
+                        ">
+                            <div style="
+                                font-weight:1000;
+                                font-size:12px;
+                                overflow:hidden;
+                                white-space:nowrap;
+                                text-overflow:ellipsis;
+                            ">
+                                {nom_capture}
+                            </div>
+
+                            <div style="
+                                color:{couleur};
+                                font-size:14px;
+                                font-weight:1000;
+                                margin-top:3px;
+                            ">
+                                {score}/10
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                    if st.button(
+                        "VOIR",
+                        key=f"view_{capture['id']}",
+                        width="stretch"
+                    ):
+
+                        st.session_state[
+                            "selected_capture"
+                        ] = capture["id"]
+
+            st.write("")
+
+        # ----------------------------------------------------
+        # CARTE AGRANDIE
+        # ----------------------------------------------------
+
+        selected_id = st.session_state.get(
+            "selected_capture"
+        )
+
+        if selected_id:
+
+            selected = next(
+                (
+                    c for c in captures
+                    if c["id"] == selected_id
+                ),
+                None
+            )
+
+            if selected:
+
+                st.divider()
+
+                score = int(
+                    selected.get("score", 0)
+                )
+
+                rarete, css_class, couleur = rarity(score)
+
+                close_col, _ = st.columns(
+                    [1, 5]
+                )
+
+                with close_col:
+
+                    if st.button(
+                        "✕ FERMER",
+                        width="stretch"
+                    ):
+                        st.session_state.pop(
+                            "selected_capture",
+                            None
                         )
+                        st.rerun()
+
+                st.markdown(
+                    f"""
+                    <div class="result-card"
+                         style="
+                         background:
+                         linear-gradient(
+                             135deg,
+                             {couleur},
+                             #ffffff,
+                             {couleur}
+                         );
+                         box-shadow:
+                         0 0 35px {couleur}66;
+                         ">
+                        <div class="result-inner">
+
+                            <div style="
+                                color:#9badd2;
+                                font-size:11px;
+                                letter-spacing:3px;
+                            ">
+                                SPÉCIMEN
+                                #{str(selected.get("numero", 0)).zfill(3)}
+                            </div>
+
+                            <div class="result-name">
+                                {selected.get("nom", "Sans nom").upper()}
+                            </div>
+
+                            <div class="result-rarity"
+                                 style="color:{couleur};">
+                                {rarete}
+                            </div>
+
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                selected_url = signed_photo(
+                    selected.get("photo_path")
+                )
+
+                if selected_url:
+
+                    st.image(
+                        selected_url,
+                        width="stretch"
+                    )
+
+                st.markdown(
+                    f"""
+                    <div style="
+                        text-align:center;
+                        font-size:65px;
+                        font-weight:1000;
+                        color:{couleur};
+                        text-shadow:0 0 22px {couleur}66;
+                    ">
+                        {score}/10
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                st.caption(
+                    f"Capturé le "
+                    f"{str(selected.get('date_capture', ''))[:10]}"
+                )
+
+                st.warning(
+                    "La suppression est définitive."
+                )
+
+                if st.button(
+                    "🗑️ SUPPRIMER CE SPÉCIMEN",
+                    key=f"delete_{selected['id']}",
+                    width="stretch"
+                ):
+
+                    delete_capture(selected)
 
 
-                        # ====================================
-                        # CARTE
-                        # ====================================
+# ============================================================
+# PROFIL
+# ============================================================
 
-                        with st.container(
-                            key=card_key,
-                            border=True
-                        ):
+with profile_tab:
 
+    captures = get_captures()
 
-                            # -------------------------------
-                            # PHOTO
-                            # -------------------------------
+    st.markdown(
+        """
+        <div class="panel">
+            <div class="scan-title">CARTE DRESSEUR</div>
+            <div class="scan-sub">
+                Statistiques de ta collection personnelle.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-                            if os.path.exists(
-                                capture["photo"]
-                            ):
+    st.write("### 👤 Compte")
+    st.write(st.session_state.user.email)
 
-                                st.image(
-                                    capture["photo"],
-                                    use_container_width=True
-                                )
+    st.write("### 📚 Collection")
 
+    total = len(captures)
 
-                            # -------------------------------
-                            # NUMÉRO
-                            # -------------------------------
+    if total:
 
-                            st.caption(
-                                f"#{capture['numero']:03d}"
-                            )
+        scores = [
+            int(c.get("score", 0))
+            for c in captures
+        ]
 
+        moyenne = sum(scores) / len(scores)
+        meilleur = max(scores)
 
-                            # -------------------------------
-                            # NOM
-                            # -------------------------------
+    else:
 
-                            st.markdown(
-                                f"**{capture['nom']}**"
-                            )
+        moyenne = 0
+        meilleur = 0
 
+    c1, c2, c3 = st.columns(3)
 
-                            # -------------------------------
-                            # SCORE COLORÉ
-                            # -------------------------------
+    c1.metric(
+        "Captures",
+        total
+    )
 
-                            with st.container(
-                                key=score_key
-                            ):
+    c2.metric(
+        "Moyenne",
+        f"{moyenne:.1f}/10"
+    )
 
-                                st.write(
-                                    f"{rarity_emoji(capture['score'])} "
-                                    f"{capture['score']}/10"
-                                )
+    c3.metric(
+        "Record",
+        f"{meilleur}/10"
+    )
 
+    legendary_count = sum(
+        1
+        for c in captures
+        if int(c.get("score", 0)) == 10
+    )
 
-                            # -------------------------------
-                            # VOIR
-                            # -------------------------------
+    epic_count = sum(
+        1
+        for c in captures
+        if int(c.get("score", 0)) in [8, 9]
+    )
 
-                            if st.button(
-                                "Voir",
-                                key=(
-                                    f"view_"
-                                    f"{capture['id']}"
-                                ),
-                                use_container_width=True
-                            ):
+    st.write("### 🏆 Raretés")
 
-                                show_specimen(
-                                    capture
-                                )
+    st.write(
+        f"🌟 **Légendaires :** {legendary_count}"
+    )
+
+    st.write(
+        f"💜 **Épiques :** {epic_count}"
+    )
+
+    st.divider()
+
+    if st.button(
+        "🚪 SE DÉCONNECTER",
+        key="logout_profile",
+        width="stretch"
+    ):
+
+        try:
+            supabase.auth.sign_out()
+        except Exception:
+            pass
+
+        st.session_state.clear()
+        st.rerun()
