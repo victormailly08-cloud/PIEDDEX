@@ -5,14 +5,14 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-# -------------------------------------------------------
-# CONFIGURATION
-# -------------------------------------------------------
+# =========================================================
+# CONFIG
+# =========================================================
 
 st.set_page_config(
     page_title="PiedDex",
     page_icon="🦶",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed"
 )
 
@@ -28,21 +28,43 @@ if not DATABASE_FILE.exists():
         json.dump([], f)
 
 
-# -------------------------------------------------------
-# DESIGN
-# -------------------------------------------------------
+# =========================================================
+# CSS
+# =========================================================
 
 st.markdown("""
 <style>
 
-/* Fond principal */
-.stApp {
-    background:
-        radial-gradient(circle at top, #431010 0%, #160606 35%, #080808 100%);
-    color: white;
+/* ---------------------------------------------------------
+   BASE / MOBILE
+--------------------------------------------------------- */
+
+html, body {
+    overscroll-behavior-y: auto !important;
+    touch-action: pan-y !important;
 }
 
-/* Masquer éléments Streamlit */
+[data-testid="stAppViewContainer"] {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-y !important;
+
+    background:
+        radial-gradient(circle at 50% -10%, #283960 0%, #111827 30%, #070a10 75%);
+}
+
+[data-testid="stMain"] {
+    overflow-y: visible !important;
+}
+
+.block-container {
+    padding-top: 0.5rem !important;
+    padding-bottom: 7rem !important;
+    max-width: 950px !important;
+}
+
+/* Streamlit UI */
+
 #MainMenu {
     visibility: hidden;
 }
@@ -55,135 +77,339 @@ header {
     background: transparent !important;
 }
 
-/* Conteneur */
-.block-container {
-    padding-top: 1rem;
-    padding-bottom: 5rem;
-    max-width: 700px;
-}
 
-/* Logo */
-.pieddex-logo {
+/* ---------------------------------------------------------
+   HEADER
+--------------------------------------------------------- */
+
+.logo {
     text-align: center;
-    font-size: 42px;
-    font-weight: 900;
+    font-size: 38px;
+    font-weight: 1000;
     letter-spacing: 3px;
     color: white;
-    margin-bottom: 0;
+
+    text-shadow:
+        0 3px 0 #182744,
+        0 0 18px rgba(100,180,255,.35);
+
+    margin-top: 5px;
 }
 
-.pieddex-subtitle {
+.subtitle {
     text-align: center;
-    color: #ff4a4a;
-    font-weight: bold;
+    font-size: 11px;
     letter-spacing: 4px;
-    font-size: 13px;
-    margin-bottom: 25px;
+    font-weight: 800;
+    color: #a9b9d3;
+    margin-bottom: 18px;
 }
 
-/* Écran scanner */
+
+/* ---------------------------------------------------------
+   TABS
+--------------------------------------------------------- */
+
+div[data-baseweb="tab-list"] {
+    background: rgba(8,12,20,.85);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 18px;
+    padding: 5px;
+    gap: 3px;
+    backdrop-filter: blur(15px);
+}
+
+button[data-baseweb="tab"] {
+    border-radius: 14px !important;
+    color: #bdc8db !important;
+    font-weight: 850 !important;
+    font-size: 15px !important;
+    min-height: 46px !important;
+}
+
+button[data-baseweb="tab"][aria-selected="true"] {
+    background:
+        linear-gradient(
+            145deg,
+            rgba(71,108,171,.65),
+            rgba(30,57,96,.75)
+        ) !important;
+
+    color: white !important;
+}
+
+
+/* ---------------------------------------------------------
+   SCANNER
+--------------------------------------------------------- */
+
 .scanner {
-    border: 4px solid #1f1f1f;
-    background: linear-gradient(145deg, #222, #090909);
-    border-radius: 20px;
-    padding: 15px;
+    background:
+        linear-gradient(
+            145deg,
+            rgba(34,50,78,.97),
+            rgba(11,17,29,.98)
+        );
+
+    border: 1px solid rgba(173,205,255,.25);
+    border-radius: 25px;
+    padding: 20px;
+
     box-shadow:
-        0 0 0 4px #a81414,
-        0 10px 30px rgba(0,0,0,0.5);
+        inset 0 1px 0 rgba(255,255,255,.15),
+        0 20px 50px rgba(0,0,0,.38);
+
+    margin-top: 15px;
     margin-bottom: 20px;
 }
 
-/* voyant */
-.light-row {
-    display:flex;
-    gap:8px;
-    margin-bottom:15px;
+.scanner-title {
+    text-align: center;
+    font-size: 21px;
+    font-weight: 950;
+    letter-spacing: 1px;
+    color: #ffffff;
 }
 
-.light-blue {
+.scanner-text {
+    text-align: center;
+    font-size: 13px;
+    color: #aebbd1;
+    margin-top: 5px;
+}
+
+
+/* Voyants scanner */
+
+.scanner-lights {
+    text-align:center;
+    margin-bottom:12px;
+}
+
+.light {
+    display:inline-block;
+    border-radius:50%;
+    margin:0 4px;
+}
+
+.blue-light {
     width:22px;
     height:22px;
-    border-radius:50%;
-    background:#43d9ff;
-    box-shadow:0 0 15px #43d9ff;
+    background:#64d7ff;
+    box-shadow:0 0 16px #64d7ff;
 }
 
-.light-red {
+.red-light {
     width:10px;
     height:10px;
-    border-radius:50%;
-    background:#ff3333;
+    background:#ff5d70;
+    box-shadow:0 0 6px #ff5d70;
 }
 
-.light-yellow {
+.yellow-light {
     width:10px;
     height:10px;
-    border-radius:50%;
-    background:#ffd633;
+    background:#ffd75a;
+    box-shadow:0 0 6px #ffd75a;
 }
 
-.light-green {
+.green-light {
     width:10px;
     height:10px;
-    border-radius:50%;
-    background:#4dff76;
+    background:#65e59a;
+    box-shadow:0 0 6px #65e59a;
 }
 
-/* Cartes */
-.specimen-card {
-    background: linear-gradient(145deg, #171717, #0b0b0b);
-    border: 2px solid #3b3b3b;
-    border-radius: 18px;
-    padding: 12px;
-    margin-bottom: 20px;
-    box-shadow: 0 5px 20px rgba(0,0,0,.35);
-}
 
-/* Score */
-.score {
-    font-size: 34px;
-    font-weight: 900;
-    text-align: center;
-}
+/* ---------------------------------------------------------
+   BUTTONS
+--------------------------------------------------------- */
 
-.rarity {
-    text-align:center;
-    font-size:18px;
-    font-weight:800;
-    letter-spacing:2px;
-}
-
-/* boutons */
 .stButton > button {
-    width:100%;
-    border-radius:12px;
-    min-height:50px;
-    font-size:17px;
-    font-weight:800;
-    border:2px solid #ff3434;
-    background:#b81818;
-    color:white;
+    border-radius: 14px !important;
+    min-height: 46px;
+    font-weight: 850;
+    border: 1px solid rgba(255,255,255,.15);
+
+    background:
+        linear-gradient(
+            145deg,
+            #4267a4,
+            #253e6b
+        );
+
+    color: white;
+
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.18),
+        0 5px 16px rgba(0,0,0,.23);
 }
 
 .stButton > button:hover {
-    background:#e02626;
-    border-color:#ff7373;
-    color:white;
+    border-color: #93c7ff;
+    transform: translateY(-1px);
 }
 
-/* Tabs */
-button[data-baseweb="tab"] {
-    font-size:16px !important;
-    font-weight:800 !important;
+
+/* ---------------------------------------------------------
+   COLLECTION
+--------------------------------------------------------- */
+
+.collection-title {
+    font-size: 22px;
+    font-weight: 950;
+    color: white;
+    margin-top: 18px;
+}
+
+.counter {
+    color: #a9b8cd;
+    margin-bottom: 12px;
+}
+
+
+/* ---------------------------------------------------------
+   CARD
+--------------------------------------------------------- */
+
+.card-info {
+    text-align: center;
+
+    background:
+        linear-gradient(
+            150deg,
+            rgba(243,248,255,.14),
+            rgba(123,158,215,.06)
+        );
+
+    border: 1px solid rgba(218,234,255,.25);
+
+    border-radius: 0 0 13px 13px;
+
+    padding: 5px 2px 6px 2px;
+
+    margin-top: -7px;
+
+    box-shadow:
+        0 5px 15px rgba(0,0,0,.2);
+}
+
+.card-number {
+    font-size: 9px;
+    color: #9eacc2;
+    font-weight: 800;
+}
+
+.card-name {
+    font-size: 11px;
+    color: white;
+    font-weight: 900;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-rarity {
+    font-size: 11px;
+    font-weight: 950;
+    margin-top: 1px;
+}
+
+
+/* ---------------------------------------------------------
+   RESULT REVEAL
+--------------------------------------------------------- */
+
+.reveal {
+    background:
+        radial-gradient(
+            circle,
+            rgba(78,132,220,.28),
+            rgba(11,17,29,.95) 65%
+        );
+
+    border: 1px solid rgba(158,198,255,.25);
+    border-radius: 25px;
+    text-align:center;
+    padding: 25px 15px;
+
+    box-shadow:
+        0 0 40px rgba(77,148,255,.12);
+}
+
+.reveal-number {
+    color:#91a4c1;
+    font-size:13px;
+    font-weight:800;
+}
+
+.reveal-name {
+    color:white;
+    font-size:26px;
+    font-weight:1000;
+}
+
+.reveal-score {
+    color:white;
+    font-size:52px;
+    font-weight:1000;
+    line-height:1;
+    margin-top:10px;
+}
+
+.reveal-rarity {
+    font-size:20px;
+    font-weight:950;
+    letter-spacing:2px;
+    margin-top:8px;
+}
+
+
+/* ---------------------------------------------------------
+   CAMERA
+--------------------------------------------------------- */
+
+[data-testid="stCameraInput"] {
+    border-radius: 20px;
+}
+
+
+/* ---------------------------------------------------------
+   MOBILE
+--------------------------------------------------------- */
+
+@media(max-width:600px) {
+
+    .block-container {
+        padding-left: 9px !important;
+        padding-right: 9px !important;
+    }
+
+    .logo {
+        font-size: 32px;
+    }
+
+    .card-name {
+        font-size: 9px;
+    }
+
+    .card-rarity {
+        font-size: 9px;
+    }
+
+    .stButton > button {
+        padding-left: 3px !important;
+        padding-right: 3px !important;
+    }
 }
 
 </style>
 """, unsafe_allow_html=True)
 
 
-# -------------------------------------------------------
-# FONCTIONS
-# -------------------------------------------------------
+# =========================================================
+# DATA
+# =========================================================
 
 def load_captures():
     try:
@@ -193,16 +419,17 @@ def load_captures():
         return []
 
 
-def save_captures(captures):
+def save_captures(data):
     with open(DATABASE_FILE, "w", encoding="utf-8") as f:
-        json.dump(captures, f, ensure_ascii=False, indent=4)
+        json.dump(
+            data,
+            f,
+            ensure_ascii=False,
+            indent=4
+        )
 
 
 def generate_rarity():
-    """
-    Tirage pondéré :
-    les grosses raretés sont beaucoup moins fréquentes.
-    """
 
     scores = [
         1, 2, 3,
@@ -214,15 +441,19 @@ def generate_rarity():
     ]
 
     weights = [
-        8, 12, 15,
+        8, 11, 14,
         15, 15,
-        12, 10,
+        13, 10,
         7,
         4,
-        2
+        1
     ]
 
-    return random.choices(scores, weights=weights, k=1)[0]
+    return random.choices(
+        scores,
+        weights=weights,
+        k=1
+    )[0]
 
 
 def rarity_name(score):
@@ -230,100 +461,233 @@ def rarity_name(score):
     if score <= 3:
         return "COMMUN"
 
-    elif score <= 5:
+    if score <= 5:
         return "PEU COMMUN"
 
-    elif score <= 7:
+    if score <= 7:
         return "RARE"
 
-    elif score == 8:
+    if score == 8:
         return "ÉPIQUE"
 
-    elif score == 9:
+    if score == 9:
         return "LÉGENDAIRE"
 
-    else:
-        return "MYTHIQUE"
+    return "MYTHIQUE"
 
 
-def rarity_emoji(score):
+def rarity_symbol(score):
 
     if score <= 3:
-        return "⚪"
+        return "◇"
 
-    elif score <= 5:
-        return "🟢"
+    if score <= 5:
+        return "◆"
 
-    elif score <= 7:
-        return "🔵"
+    if score <= 7:
+        return "✦"
 
-    elif score == 8:
-        return "🟣"
+    if score == 8:
+        return "✦✦"
 
-    elif score == 9:
-        return "🟡"
+    if score == 9:
+        return "★"
 
-    return "🔥"
+    return "★★★"
 
 
-# -------------------------------------------------------
+def rarity_color(score):
+
+    if score <= 3:
+        return "#c7ceda"
+
+    if score <= 5:
+        return "#77daa7"
+
+    if score <= 7:
+        return "#73b9ff"
+
+    if score == 8:
+        return "#c28cff"
+
+    if score == 9:
+        return "#ffd768"
+
+    return "#ff8bc7"
+
+
+def delete_capture(capture_id):
+
+    captures = load_captures()
+
+    target = next(
+        (
+            c for c in captures
+            if c["id"] == capture_id
+        ),
+        None
+    )
+
+    if target:
+
+        photo_path = target.get("photo")
+
+        if photo_path and os.path.exists(photo_path):
+            try:
+                os.remove(photo_path)
+            except:
+                pass
+
+        captures = [
+            c for c in captures
+            if c["id"] != capture_id
+        ]
+
+        save_captures(captures)
+
+
+# =========================================================
+# DIALOG
+# =========================================================
+
+@st.dialog("Fiche du spécimen")
+def show_specimen(capture):
+
+    if os.path.exists(capture["photo"]):
+        st.image(
+            capture["photo"],
+            use_container_width=True
+        )
+
+    color = rarity_color(capture["score"])
+
+    st.markdown(
+        f"""
+        <div style="text-align:center">
+
+            <div style="
+                color:#93a2b8;
+                font-size:13px;
+                font-weight:800;
+            ">
+                ENTRÉE #{capture["numero"]:03d}
+            </div>
+
+            <div style="
+                color:white;
+                font-size:28px;
+                font-weight:1000;
+            ">
+                {capture["nom"].upper()}
+            </div>
+
+            <div style="
+                color:{color};
+                font-size:45px;
+                font-weight:1000;
+            ">
+                {capture["score"]}/10
+            </div>
+
+            <div style="
+                color:{color};
+                font-size:18px;
+                font-weight:950;
+                letter-spacing:2px;
+            ">
+                {rarity_symbol(capture["score"])}
+                {capture["rarete"]}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.caption(
+        f"Capturé le {capture['date']}"
+    )
+
+    st.markdown("---")
+
+    if st.button(
+        "🗑️ Supprimer ce spécimen",
+        key=f"delete_{capture['id']}",
+        use_container_width=True
+    ):
+
+        delete_capture(capture["id"])
+
+        st.session_state["close_dialog"] = True
+
+        st.rerun()
+
+
+# =========================================================
 # HEADER
-# -------------------------------------------------------
+# =========================================================
 
 st.markdown(
-    '<div class="pieddex-logo">🦶 PIEDDEX</div>',
+    '<div class="logo">PIEDDEX</div>',
     unsafe_allow_html=True
 )
 
 st.markdown(
-    '<div class="pieddex-subtitle">ENCYCLOPÉDIE DES SPÉCIMENS</div>',
+    '<div class="subtitle">COLLECTION DE SPÉCIMENS</div>',
     unsafe_allow_html=True
 )
 
 
-# -------------------------------------------------------
-# ONGLET
-# -------------------------------------------------------
+# =========================================================
+# TABS
+# =========================================================
 
 tab_capture, tab_collection = st.tabs(
-    ["📸 CAPTURER", "📖 MON PIEDDEX"]
+    [
+        "📸 CAPTURER",
+        "📚 MON PIEDDEX"
+    ]
 )
 
 
-# =======================================================
+# =========================================================
 # CAPTURE
-# =======================================================
+# =========================================================
 
 with tab_capture:
 
-    st.markdown("""
-    <div class="scanner">
+    # Scanner corrigé : HTML très simple
+    st.markdown(
+        """
+        <div class="scanner">
 
-        <div class="light-row">
-            <div class="light-blue"></div>
-            <div class="light-red"></div>
-            <div class="light-yellow"></div>
-            <div class="light-green"></div>
+            <div class="scanner-lights">
+                <span class="light blue-light"></span>
+                <span class="light red-light"></span>
+                <span class="light yellow-light"></span>
+                <span class="light green-light"></span>
+            </div>
+
+            <div class="scanner-title">
+                SCANNER DE SPÉCIMEN
+            </div>
+
+            <div class="scanner-text">
+                Place le spécimen dans le champ de la caméra
+            </div>
+
         </div>
-
-        <h3 style="text-align:center;">
-            SCANNER DE SPÉCIMEN
-        </h3>
-
-        <p style="text-align:center;color:#aaa;">
-            Place le spécimen dans le champ de la caméra.
-        </p>
-
-    </div>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
 
     photo = st.camera_input(
-        "📷 CAPTURER UN NOUVEAU SPÉCIMEN"
+        "📷 Prendre une photo"
     )
 
     if photo:
 
-        st.markdown("### ✅ Spécimen détecté")
+        st.markdown("### Spécimen détecté")
 
         nom = st.text_input(
             "Nom du spécimen",
@@ -331,36 +695,45 @@ with tab_capture:
         )
 
         if st.button(
-            "🔍 ANALYSER LE SPÉCIMEN",
+            "🔍 ANALYSER",
             use_container_width=True
         ):
 
             if not nom.strip():
 
                 st.warning(
-                    "Entre d'abord un nom pour ce spécimen."
+                    "Entre le nom du spécimen."
                 )
 
             else:
 
                 score = generate_rarity()
-
                 rarete = rarity_name(score)
 
                 capture_id = datetime.now().strftime(
                     "%Y%m%d_%H%M%S_%f"
                 )
 
-                filename = f"{capture_id}.jpg"
-
-                filepath = PHOTOS_FOLDER / filename
+                filepath = (
+                    PHOTOS_FOLDER /
+                    f"{capture_id}.jpg"
+                )
 
                 with open(filepath, "wb") as f:
                     f.write(photo.getbuffer())
 
                 captures = load_captures()
 
-                numero = len(captures) + 1
+                numero = (
+                    max(
+                        [
+                            c.get("numero", 0)
+                            for c in captures
+                        ],
+                        default=0
+                    )
+                    + 1
+                )
 
                 capture = {
 
@@ -377,7 +750,7 @@ with tab_capture:
                     "photo": str(filepath),
 
                     "date": datetime.now().strftime(
-                        "%d/%m/%Y %H:%M"
+                        "%d/%m/%Y à %H:%M"
                     )
                 }
 
@@ -385,54 +758,77 @@ with tab_capture:
 
                 save_captures(captures)
 
-                st.markdown("---")
-
-                st.markdown(
-                    "## 🧬 ANALYSE TERMINÉE"
-                )
+                color = rarity_color(score)
 
                 st.markdown(
                     f"""
-                    <div class="score">
-                        {score}/10
-                    </div>
+                    <div class="reveal">
 
-                    <div class="rarity">
-                        {rarity_emoji(score)} {rarete}
+                        <div class="reveal-number">
+                            NOUVEAU SPÉCIMEN
+                            #{numero:03d}
+                        </div>
+
+                        <div class="reveal-name">
+                            {nom.upper()}
+                        </div>
+
+                        <div
+                            class="reveal-score"
+                            style="color:{color}"
+                        >
+                            {score}/10
+                        </div>
+
+                        <div
+                            class="reveal-rarity"
+                            style="color:{color}"
+                        >
+                            {rarity_symbol(score)}
+                            {rarete}
+                        </div>
+
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
 
-                st.success(
-                    f"#{numero:03d} — {nom.upper()} ajouté au PiedDex !"
-                )
-
-                st.balloons()
+                if score >= 9:
+                    st.balloons()
 
 
-# =======================================================
+# =========================================================
 # COLLECTION
-# =======================================================
+# =========================================================
 
 with tab_collection:
 
     captures = load_captures()
 
-    if len(captures) == 0:
+    if not captures:
 
         st.info(
-            "Ton PiedDex est vide. Capture ton premier spécimen !"
+            "Aucun spécimen capturé pour le moment."
         )
 
     else:
 
         st.markdown(
-            f"### 🦶 {len(captures)} spécimen(s) découvert(s)"
+            '<div class="collection-title">Ma collection</div>',
+            unsafe_allow_html=True
+        )
+
+        st.markdown(
+            f"""
+            <div class="counter">
+                {len(captures)} spécimen(s) découvert(s)
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
         sort_option = st.selectbox(
-            "Classer les captures",
+            "Trier",
             [
                 "Plus récentes",
                 "Plus anciennes",
@@ -442,12 +838,11 @@ with tab_collection:
         )
 
         if sort_option == "Plus récentes":
+
             captures = captures[::-1]
 
-        elif sort_option == "Plus anciennes":
-            pass
-
         elif sort_option == "Rareté décroissante":
+
             captures = sorted(
                 captures,
                 key=lambda x: x["score"],
@@ -455,50 +850,70 @@ with tab_collection:
             )
 
         elif sort_option == "Rareté croissante":
+
             captures = sorted(
                 captures,
                 key=lambda x: x["score"]
             )
 
-        st.markdown("---")
 
-        for capture in captures:
+        # -------------------------------------------------
+        # GRILLE 4 PAR LIGNE
+        # -------------------------------------------------
 
-            st.markdown(
-                '<div class="specimen-card">',
-                unsafe_allow_html=True
+        for i in range(0, len(captures), 4):
+
+            row = captures[i:i + 4]
+
+            cols = st.columns(
+                4,
+                gap="small"
             )
 
-            if os.path.exists(capture["photo"]):
+            for col, capture in zip(cols, row):
 
-                st.image(
-                    capture["photo"],
-                    use_container_width=True
-                )
+                with col:
 
-            st.markdown(
-                f"## #{capture['numero']:03d} — {capture['nom']}"
-            )
+                    if os.path.exists(capture["photo"]):
 
-            st.markdown(
-                f"""
-                <div class="score">
-                    {capture['score']}/10
-                </div>
+                        st.image(
+                            capture["photo"],
+                            use_container_width=True
+                        )
 
-                <div class="rarity">
-                    {rarity_emoji(capture['score'])}
-                    {capture['rarete']}
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+                    color = rarity_color(
+                        capture["score"]
+                    )
 
-            st.caption(
-                f"Capturé le {capture['date']}"
-            )
+                    st.markdown(
+                        f"""
+                        <div class="card-info">
 
-            st.markdown(
-                "</div>",
-                unsafe_allow_html=True
-            )
+                            <div class="card-number">
+                                #{capture["numero"]:03d}
+                            </div>
+
+                            <div class="card-name">
+                                {capture["nom"].upper()}
+                            </div>
+
+                            <div
+                                class="card-rarity"
+                                style="color:{color}"
+                            >
+                                {capture["score"]}/10
+                                {rarity_symbol(capture["score"])}
+                            </div>
+
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                    if st.button(
+                        "VOIR",
+                        key=f"view_{capture['id']}",
+                        use_container_width=True
+                    ):
+
+                        show_specimen(capture)
