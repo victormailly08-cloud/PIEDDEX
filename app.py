@@ -27,15 +27,32 @@ if not DATABASE_FILE.exists():
     with open(DATABASE_FILE, "w", encoding="utf-8") as f:
         json.dump([], f)
 
+
 # ============================================================
-# STYLE SIMPLE ET FIABLE
+# STYLE
 # ============================================================
 
 st.markdown("""
 <style>
+
+/* ---------------------------------------------------------
+   GLOBAL
+--------------------------------------------------------- */
+
+html, body {
+    overscroll-behavior-y: auto !important;
+    touch-action: pan-y !important;
+}
+
+[data-testid="stAppViewContainer"] {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
 .block-container {
-    padding-top: 0.5rem;
-    padding-bottom: 8rem;
+    padding-top: 0.5rem !important;
+    padding-bottom: 8rem !important;
+    max-width: 900px !important;
 }
 
 #MainMenu {
@@ -47,24 +64,102 @@ footer {
 }
 
 header {
-    background: transparent;
+    background: transparent !important;
 }
+
+
+/* ---------------------------------------------------------
+   BOUTONS
+--------------------------------------------------------- */
 
 .stButton > button {
     width: 100%;
-    border-radius: 12px;
-    font-weight: 700;
+    border-radius: 12px !important;
+    font-weight: 800 !important;
 }
 
+
+/* ---------------------------------------------------------
+   TABS
+--------------------------------------------------------- */
+
 div[data-baseweb="tab-list"] {
-    gap: 8px;
+    gap: 6px;
 }
 
 button[data-baseweb="tab"] {
-    font-weight: 800;
+    font-weight: 800 !important;
 }
+
+
+/* ---------------------------------------------------------
+   MOBILE : FORCER 4 CARTES PAR LIGNE
+--------------------------------------------------------- */
+
+@media (max-width: 700px) {
+
+    .block-container {
+        padding-left: 8px !important;
+        padding-right: 8px !important;
+    }
+
+    div[data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 4px !important;
+        align-items: flex-start !important;
+    }
+
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        width: 25% !important;
+        flex: 1 1 25% !important;
+        min-width: 0 !important;
+    }
+
+    div[data-testid="stHorizontalBlock"] img {
+        width: 100% !important;
+        height: 78px !important;
+        object-fit: cover !important;
+        border-radius: 8px !important;
+    }
+
+    div[data-testid="stHorizontalBlock"] p {
+        font-size: 9px !important;
+        line-height: 1.05 !important;
+        margin-top: 1px !important;
+        margin-bottom: 1px !important;
+        overflow: hidden !important;
+        white-space: nowrap !important;
+        text-overflow: ellipsis !important;
+    }
+
+    div[data-testid="stHorizontalBlock"] .stButton button {
+        min-height: 25px !important;
+        height: 25px !important;
+        padding: 0 !important;
+        font-size: 8px !important;
+        border-radius: 6px !important;
+    }
+
+}
+
+
+/* ---------------------------------------------------------
+   DESKTOP
+--------------------------------------------------------- */
+
+@media (min-width: 701px) {
+
+    div[data-testid="stHorizontalBlock"] img {
+        max-height: 180px !important;
+        object-fit: cover !important;
+        border-radius: 10px !important;
+    }
+
+}
+
 </style>
 """, unsafe_allow_html=True)
+
 
 # ============================================================
 # FONCTIONS
@@ -77,14 +172,27 @@ def load_captures():
     except:
         return []
 
+
 def save_captures(captures):
     with open(DATABASE_FILE, "w", encoding="utf-8") as f:
-        json.dump(captures, f, ensure_ascii=False, indent=4)
+        json.dump(
+            captures,
+            f,
+            ensure_ascii=False,
+            indent=4
+        )
+
 
 def generate_rarity():
     scores = [1,2,3,4,5,6,7,8,9,10]
     weights = [8,11,14,15,15,13,10,7,4,1]
-    return random.choices(scores, weights=weights, k=1)[0]
+
+    return random.choices(
+        scores,
+        weights=weights,
+        k=1
+    )[0]
+
 
 def rarity_name(score):
     if score <= 3:
@@ -100,6 +208,7 @@ def rarity_name(score):
     else:
         return "MYTHIQUE"
 
+
 def rarity_emoji(score):
     if score <= 3:
         return "⚪"
@@ -114,11 +223,15 @@ def rarity_emoji(score):
     else:
         return "🔥"
 
+
 def delete_capture(capture_id):
     captures = load_captures()
 
     target = next(
-        (c for c in captures if c["id"] == capture_id),
+        (
+            c for c in captures
+            if c["id"] == capture_id
+        ),
         None
     )
 
@@ -138,8 +251,9 @@ def delete_capture(capture_id):
 
     save_captures(captures)
 
+
 # ============================================================
-# DIALOGUE PHOTO
+# POPUP / ZOOM
 # ============================================================
 
 @st.dialog("Fiche du spécimen")
@@ -155,10 +269,19 @@ def show_specimen(capture):
         f"### #{capture['numero']:03d} — {capture['nom']}"
     )
 
-    st.metric(
-        "Rareté",
-        f"{capture['score']}/10"
-    )
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            "Rareté",
+            f"{capture['score']}/10"
+        )
+
+    with col2:
+        st.metric(
+            "Classe",
+            capture["rarete"]
+        )
 
     st.write(
         f"{rarity_emoji(capture['score'])} "
@@ -179,6 +302,7 @@ def show_specimen(capture):
         delete_capture(capture["id"])
         st.rerun()
 
+
 # ============================================================
 # HEADER
 # ============================================================
@@ -186,16 +310,21 @@ def show_specimen(capture):
 st.title("🦶 PIEDDEX")
 st.caption("Collection personnelle de spécimens")
 
+
 # ============================================================
 # TABS
 # ============================================================
 
 tab_capture, tab_collection = st.tabs(
-    ["📸 CAPTURER", "📚 MON PIEDDEX"]
+    [
+        "📸 CAPTURER",
+        "📚 MON PIEDDEX"
+    ]
 )
 
+
 # ============================================================
-# CAPTURER
+# ONGLET CAPTURE
 # ============================================================
 
 with tab_capture:
@@ -254,7 +383,10 @@ with tab_capture:
                 captures = load_captures()
 
                 numero = max(
-                    [c.get("numero", 0) for c in captures],
+                    [
+                        c.get("numero", 0)
+                        for c in captures
+                    ],
                     default=0
                 ) + 1
 
@@ -300,8 +432,9 @@ with tab_capture:
                 if score >= 9:
                     st.balloons()
 
+
 # ============================================================
-# PIEDDEX
+# ONGLET PIEDDEX
 # ============================================================
 
 with tab_collection:
@@ -333,9 +466,11 @@ with tab_collection:
         )
 
         if sort_option == "Plus récentes":
+
             captures = captures[::-1]
 
         elif sort_option == "Rareté décroissante":
+
             captures = sorted(
                 captures,
                 key=lambda x: x["score"],
@@ -343,23 +478,38 @@ with tab_collection:
             )
 
         elif sort_option == "Rareté croissante":
+
             captures = sorted(
                 captures,
                 key=lambda x: x["score"]
             )
 
-        # 4 cartes par ligne
+        st.divider()
+
+        # ====================================================
+        # 4 PETITES CARTES PAR LIGNE
+        # ====================================================
+
         for i in range(0, len(captures), 4):
 
-            row = captures[i:i+4]
+            row = captures[i:i + 4]
 
-            cols = st.columns(4)
+            cols = st.columns(
+                4,
+                gap="small"
+            )
 
-            for col, capture in zip(cols, row):
+            for index, col in enumerate(cols):
+
+                if index >= len(row):
+                    continue
+
+                capture = row[index]
 
                 with col:
 
                     if os.path.exists(capture["photo"]):
+
                         st.image(
                             capture["photo"],
                             use_container_width=True
@@ -373,7 +523,7 @@ with tab_collection:
                         f"**{capture['nom']}**"
                     )
 
-                    st.write(
+                    st.caption(
                         f"{rarity_emoji(capture['score'])} "
                         f"{capture['score']}/10"
                     )
