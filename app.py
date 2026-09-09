@@ -2,7 +2,6 @@ import streamlit as st
 import random
 import os
 import json
-import base64
 from datetime import datetime
 from pathlib import Path
 
@@ -29,108 +28,46 @@ if not DATABASE_FILE.exists():
         json.dump([], f)
 
 # ============================================================
-# CSS GLOBAL
+# STYLE SIMPLE ET FIABLE
 # ============================================================
 
 st.markdown("""
 <style>
-
-html, body {
-    overscroll-behavior-y: auto !important;
-    touch-action: pan-y !important;
-}
-
-[data-testid="stAppViewContainer"] {
-    background:
-        radial-gradient(circle at top, #28395f 0%, #111725 35%, #07090d 75%);
-    color: white;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-}
-
-[data-testid="stMain"] {
-    overflow-y: visible !important;
-}
-
 .block-container {
-    padding-top: 0.4rem !important;
-    padding-bottom: 8rem !important;
-    max-width: 900px !important;
+    padding-top: 0.5rem;
+    padding-bottom: 8rem;
 }
 
-#MainMenu, footer {
+#MainMenu {
+    visibility: hidden;
+}
+
+footer {
     visibility: hidden;
 }
 
 header {
-    background: transparent !important;
-}
-
-/* HEADER */
-.app-title {
-    text-align:center;
-    font-size:34px;
-    font-weight:1000;
-    letter-spacing:3px;
-    margin-top:4px;
-}
-
-.app-subtitle {
-    text-align:center;
-    font-size:11px;
-    letter-spacing:4px;
-    color:#9cb0ce;
-    margin-bottom:16px;
-}
-
-/* TABS */
-div[data-baseweb="tab-list"] {
-    background:#0f1724;
-    padding:4px;
-    border-radius:16px;
-    border:1px solid rgba(255,255,255,.08);
-}
-
-button[data-baseweb="tab"] {
-    font-weight:900 !important;
-    color:#b9c5d7 !important;
-    border-radius:12px !important;
-    min-height:44px !important;
-}
-
-button[data-baseweb="tab"][aria-selected="true"] {
-    background:linear-gradient(145deg,#436cae,#253d69) !important;
-    color:white !important;
-}
-
-/* CAMERA / INPUT */
-[data-testid="stCameraInput"] {
-    border-radius:18px;
+    background: transparent;
 }
 
 .stButton > button {
-    border-radius:14px !important;
-    min-height:46px;
-    font-weight:900;
-    color:white;
-    background:linear-gradient(145deg,#426da9,#253d66);
-    border:1px solid rgba(255,255,255,.15);
+    width: 100%;
+    border-radius: 12px;
+    font-weight: 700;
 }
 
-/* MOBILE */
-@media(max-width:600px) {
-    .block-container {
-        padding-left:10px !important;
-        padding-right:10px !important;
-    }
+div[data-baseweb="tab-list"] {
+    gap: 8px;
 }
 
+button[data-baseweb="tab"] {
+    font-weight: 800;
+}
 </style>
 """, unsafe_allow_html=True)
 
-
 # ============================================================
-# DATA
+# FONCTIONS
 # ============================================================
 
 def load_captures():
@@ -140,45 +77,42 @@ def load_captures():
     except:
         return []
 
-
-def save_captures(data):
+def save_captures(captures):
     with open(DATABASE_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
+        json.dump(captures, f, ensure_ascii=False, indent=4)
 
 def generate_rarity():
     scores = [1,2,3,4,5,6,7,8,9,10]
     weights = [8,11,14,15,15,13,10,7,4,1]
     return random.choices(scores, weights=weights, k=1)[0]
 
-
 def rarity_name(score):
     if score <= 3:
         return "COMMUN"
-    if score <= 5:
+    elif score <= 5:
         return "PEU COMMUN"
-    if score <= 7:
+    elif score <= 7:
         return "RARE"
-    if score == 8:
+    elif score == 8:
         return "ÉPIQUE"
-    if score == 9:
+    elif score == 9:
         return "LÉGENDAIRE"
-    return "MYTHIQUE"
+    else:
+        return "MYTHIQUE"
 
-
-def rarity_color(score):
+def rarity_emoji(score):
     if score <= 3:
-        return "#c8cfd9"
-    if score <= 5:
-        return "#78d5a2"
-    if score <= 7:
-        return "#70b9ff"
-    if score == 8:
-        return "#bb88ff"
-    if score == 9:
-        return "#ffd45f"
-    return "#ff89c4"
-
+        return "⚪"
+    elif score <= 5:
+        return "🟢"
+    elif score <= 7:
+        return "🔵"
+    elif score == 8:
+        return "🟣"
+    elif score == 9:
+        return "🟡"
+    else:
+        return "🔥"
 
 def delete_capture(capture_id):
     captures = load_captures()
@@ -189,85 +123,53 @@ def delete_capture(capture_id):
     )
 
     if target:
-        path = target.get("photo")
-        if path and os.path.exists(path):
+        photo_path = target.get("photo")
+
+        if photo_path and os.path.exists(photo_path):
             try:
-                os.remove(path)
+                os.remove(photo_path)
             except:
                 pass
 
-    captures = [c for c in captures if c["id"] != capture_id]
+    captures = [
+        c for c in captures
+        if c["id"] != capture_id
+    ]
+
     save_captures(captures)
 
-
-def image_to_base64(path):
-    if not os.path.exists(path):
-        return ""
-
-    with open(path, "rb") as image_file:
-        encoded = base64.b64encode(image_file.read()).decode()
-
-    return f"data:image/jpeg;base64,{encoded}"
-
-
 # ============================================================
-# MODAL
+# DIALOGUE PHOTO
 # ============================================================
 
-@st.dialog("Spécimen")
+@st.dialog("Fiche du spécimen")
 def show_specimen(capture):
 
-    st.image(capture["photo"], use_container_width=True)
-
-    color = rarity_color(capture["score"])
+    if os.path.exists(capture["photo"]):
+        st.image(
+            capture["photo"],
+            use_container_width=True
+        )
 
     st.markdown(
-        f"""
-        <div style="text-align:center">
-
-            <div style="
-                color:#8ea1bd;
-                font-size:12px;
-                font-weight:800;
-                letter-spacing:2px;
-            ">
-                ENTRÉE #{capture["numero"]:03d}
-            </div>
-
-            <div style="
-                font-size:28px;
-                font-weight:1000;
-                margin-top:4px;
-            ">
-                {capture["nom"].upper()}
-            </div>
-
-            <div style="
-                color:{color};
-                font-size:48px;
-                font-weight:1000;
-                margin-top:6px;
-            ">
-                {capture["score"]}/10
-            </div>
-
-            <div style="
-                color:{color};
-                font-size:17px;
-                font-weight:900;
-                letter-spacing:2px;
-            ">
-                {capture["rarete"]}
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
+        f"### #{capture['numero']:03d} — {capture['nom']}"
     )
 
-    st.caption(f"Capturé le {capture['date']}")
+    st.metric(
+        "Rareté",
+        f"{capture['score']}/10"
+    )
 
-    st.markdown("---")
+    st.write(
+        f"{rarity_emoji(capture['score'])} "
+        f"**{capture['rarete']}**"
+    )
+
+    st.caption(
+        f"Capturé le {capture['date']}"
+    )
+
+    st.divider()
 
     if st.button(
         "🗑️ Supprimer ce spécimen",
@@ -277,21 +179,12 @@ def show_specimen(capture):
         delete_capture(capture["id"])
         st.rerun()
 
-
 # ============================================================
 # HEADER
 # ============================================================
 
-st.markdown(
-    '<div class="app-title">PIEDDEX</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    '<div class="app-subtitle">COLLECTION DE SPÉCIMENS</div>',
-    unsafe_allow_html=True
-)
-
+st.title("🦶 PIEDDEX")
+st.caption("Collection personnelle de spécimens")
 
 # ============================================================
 # TABS
@@ -301,9 +194,8 @@ tab_capture, tab_collection = st.tabs(
     ["📸 CAPTURER", "📚 MON PIEDDEX"]
 )
 
-
 # ============================================================
-# CAPTURE
+# CAPTURER
 # ============================================================
 
 with tab_capture:
@@ -311,12 +203,20 @@ with tab_capture:
     st.subheader("Scanner de spécimen")
 
     st.info(
-        "Place le pied dans le champ de la caméra puis prends la photo."
+        "Prends une photo du pied, donne-lui un nom puis lance l'analyse."
     )
 
-    photo = st.camera_input("📷 Prendre une photo")
+    photo = st.camera_input(
+        "📷 Prendre une photo"
+    )
 
     if photo:
+
+        st.image(
+            photo,
+            caption="Aperçu",
+            use_container_width=True
+        )
 
         nom = st.text_input(
             "Nom du spécimen",
@@ -329,7 +229,10 @@ with tab_capture:
         ):
 
             if not nom.strip():
-                st.warning("Entre un nom avant l'analyse.")
+
+                st.warning(
+                    "Entre d'abord le nom du spécimen."
+                )
 
             else:
 
@@ -340,7 +243,10 @@ with tab_capture:
                     "%Y%m%d_%H%M%S_%f"
                 )
 
-                filepath = PHOTOS_FOLDER / f"{capture_id}.jpg"
+                filepath = (
+                    PHOTOS_FOLDER /
+                    f"{capture_id}.jpg"
+                )
 
                 with open(filepath, "wb") as f:
                     f.write(photo.getbuffer())
@@ -359,73 +265,43 @@ with tab_capture:
                     "score": score,
                     "rarete": rarete,
                     "photo": str(filepath),
-                    "date": datetime.now().strftime("%d/%m/%Y à %H:%M")
+                    "date": datetime.now().strftime(
+                        "%d/%m/%Y à %H:%M"
+                    )
                 }
 
                 captures.append(capture)
                 save_captures(captures)
 
-                color = rarity_color(score)
+                st.success(
+                    f"Nouveau spécimen : "
+                    f"#{numero:03d} — {nom.upper()}"
+                )
 
-                st.success("Analyse terminée")
+                col1, col2 = st.columns(2)
 
-                st.markdown(
-                    f"""
-                    <div style="
-                        background:linear-gradient(145deg,#172033,#0b1018);
-                        border:1px solid rgba(255,255,255,.12);
-                        border-radius:22px;
-                        padding:22px;
-                        text-align:center;
-                        margin-top:10px;
-                    ">
+                with col1:
+                    st.metric(
+                        "Note",
+                        f"{score}/10"
+                    )
 
-                        <div style="
-                            color:#8ea1bd;
-                            font-size:12px;
-                            font-weight:800;
-                            letter-spacing:2px;
-                        ">
-                            NOUVEAU SPÉCIMEN #{numero:03d}
-                        </div>
+                with col2:
+                    st.metric(
+                        "Catégorie",
+                        rarete
+                    )
 
-                        <div style="
-                            color:white;
-                            font-size:28px;
-                            font-weight:1000;
-                            margin-top:4px;
-                        ">
-                            {nom.upper()}
-                        </div>
-
-                        <div style="
-                            color:{color};
-                            font-size:52px;
-                            font-weight:1000;
-                            margin-top:8px;
-                        ">
-                            {score}/10
-                        </div>
-
-                        <div style="
-                            color:{color};
-                            font-size:18px;
-                            font-weight:900;
-                        ">
-                            {rarete}
-                        </div>
-
-                    </div>
-                    """,
-                    unsafe_allow_html=True
+                st.write(
+                    f"{rarity_emoji(score)} "
+                    f"**{rarete}**"
                 )
 
                 if score >= 9:
                     st.balloons()
 
-
 # ============================================================
-# COLLECTION
+# PIEDDEX
 # ============================================================
 
 with tab_collection:
@@ -433,12 +309,18 @@ with tab_collection:
     captures = load_captures()
 
     if not captures:
-        st.info("Aucun spécimen dans ton PiedDex pour le moment.")
+
+        st.info(
+            "Ton PiedDex est vide pour le moment."
+        )
 
     else:
 
-        st.markdown("## Ma collection")
-        st.caption(f"{len(captures)} spécimen(s) découvert(s)")
+        st.subheader("Ma collection")
+
+        st.caption(
+            f"{len(captures)} spécimen(s) découvert(s)"
+        )
 
         sort_option = st.selectbox(
             "Trier",
@@ -467,95 +349,38 @@ with tab_collection:
             )
 
         # 4 cartes par ligne
-        rows = [
-            captures[i:i+4]
-            for i in range(0, len(captures), 4)
-        ]
+        for i in range(0, len(captures), 4):
 
-        for row in rows:
+            row = captures[i:i+4]
 
-            cols = st.columns(4, gap="small")
+            cols = st.columns(4)
 
             for col, capture in zip(cols, row):
 
                 with col:
 
-                    image64 = image_to_base64(capture["photo"])
-                    color = rarity_color(capture["score"])
+                    if os.path.exists(capture["photo"]):
+                        st.image(
+                            capture["photo"],
+                            use_container_width=True
+                        )
 
-                    # Petite carte carrée
+                    st.caption(
+                        f"#{capture['numero']:03d}"
+                    )
+
                     st.markdown(
-                        f"""
-                        <div style="
-                            background:
-                                linear-gradient(
-                                    145deg,
-                                    rgba(255,255,255,.10),
-                                    rgba(255,255,255,.03)
-                                );
-                            border:1px solid rgba(255,255,255,.16);
-                            border-radius:12px;
-                            overflow:hidden;
-                            box-shadow:0 5px 14px rgba(0,0,0,.25);
-                        ">
+                        f"**{capture['nom']}**"
+                    )
 
-                            <div style="
-                                aspect-ratio:1/1;
-                                overflow:hidden;
-                                background:#10141b;
-                            ">
-                                <img
-                                    src="{image64}"
-                                    style="
-                                        width:100%;
-                                        height:100%;
-                                        object-fit:cover;
-                                    "
-                                >
-                            </div>
-
-                            <div style="
-                                padding:5px 3px;
-                                text-align:center;
-                            ">
-
-                                <div style="
-                                    font-size:8px;
-                                    color:#8698b3;
-                                    font-weight:800;
-                                ">
-                                    #{capture["numero"]:03d}
-                                </div>
-
-                                <div style="
-                                    font-size:9px;
-                                    color:white;
-                                    font-weight:900;
-                                    white-space:nowrap;
-                                    overflow:hidden;
-                                    text-overflow:ellipsis;
-                                ">
-                                    {capture["nom"].upper()}
-                                </div>
-
-                                <div style="
-                                    font-size:9px;
-                                    color:{color};
-                                    font-weight:900;
-                                ">
-                                    {capture["score"]}/10
-                                </div>
-
-                            </div>
-
-                        </div>
-                        """,
-                        unsafe_allow_html=True
+                    st.write(
+                        f"{rarity_emoji(capture['score'])} "
+                        f"{capture['score']}/10"
                     )
 
                     if st.button(
                         "Voir",
-                        key=f"open_{capture['id']}",
+                        key=f"view_{capture['id']}",
                         use_container_width=True
                     ):
                         show_specimen(capture)
