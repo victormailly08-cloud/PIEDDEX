@@ -1,6 +1,10 @@
 import streamlit as st
 from supabase import create_client
-import random
+from openai import OpenAI
+from PIL import Image
+import base64
+import io
+import json
 import uuid
 import time
 from datetime import datetime
@@ -25,7 +29,11 @@ supabase = create_client(
     SUPABASE_KEY
 )
 
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
 BUCKET_NAME = "pieddex-photos"
+OPENAI_MODEL = "gpt-5.6-luna"
 
 
 # ============================================================
@@ -40,6 +48,7 @@ defaults = {
     "analysis_score": None,
     "analysis_name": None,
     "analysis_photo": None,
+    "analysis_details": None,
 }
 
 for key, value in defaults.items():
@@ -308,130 +317,313 @@ button[data-baseweb="tab"] {
 # RARETÉS
 # ============================================================
 
-def generate_rarity():
+def clamp_score(value):
+    """Force une note dans l'intervalle 0 à 10."""
+    try:
+        return max(0.0, min(10.0, float(value)))
+    except Exception:
+        return 0.0
 
-    scores = [
-        1, 2, 3,
-        4, 5,
-        6, 7,
-        8,
-        9,
-        10
-    ]
 
-    weights = [
-        8, 11, 14,
-        15, 15,
-        13, 10,
-        7,
-        4,
+def compress_image_for_ai(photo_bytes):
+    """
+    Version légère envoyée à l'IA :
+    - côté max 512 px
+    - JPEG qualité 72
+    Cela réduit fortement les données envoyées et, avec detail='low',
+    maintient le coût par analyse très bas.
+    """
+    image = Image.open(io.BytesIO(photo_bytes)).convert("RGB")
+    image.thumbnail((512, 512))
+
+    output = io.BytesIO()
+    image.save(
+        output,
+        format="JPEG",
+        quality=72,
+        optimize=True
+    )
+    return output.getvalue()
+
+
+def parse_json_response(text):
+    cleaned = (text or "").strip()
+
+    if cleaned.startswith("```"):
+        cleaned = cleaned.replace("```json", "", 1)
+        cleaned = cleaned.replace("```", "").strip()
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+
+    if start == -1 or end == -1:
+        raise ValueError("Réponse IA non exploitable.")
+
+    return json.loads(cleaned[start:end + 1])
+
+
+def analyser_pied(photo_bytes):
+    """
+    Une seule requête IA par analyse.
+    Le modèle reçoit une image compressée en basse définition,
+    suffisante pour vérifier la présence d'un pied et noter les critères.
+    """
+
+    light_image = compress_image_for_ai(photo_bytes)
+    image_b64 = base64.b64encode(light_image).decode("utf-8")
+
+    prompt = """
+Tu es le scanner visuel d'un jeu humoristique appelé PiedDex.
+
+OBJECTIF 1 — VALIDATION
+Vérifie d'abord que l'image montre clairement au moins un pied humain réel.
+Un pied doit être suffisamment visible pour évaluer les orteils, les ongles,
+la forme générale et l'état visuel. Refuse notamment :
+- aucune présence de pied humain ;
+- chaussure ou chaussette cachant l'essentiel du pied ;
+- pied beaucoup trop petit dans l'image ;
+- photo trop floue, trop sombre ou trop obstruée pour être évaluée.
+
+Ne fais aucun diagnostic médical.
+Ne déduis aucun âge, sexe, origine, identité ou information personnelle.
+Évalue uniquement l'apparence visible du pied.
+
+OBJECTIF 2 — NOTES SI LA PHOTO EST VALIDE
+Attribue des notes de 0.0 à 10.0 avec une décimale :
+
+soin_general :
+impression visuelle de propreté et d'entretien.
+
+ongles_pedicure :
+coupe, régularité, propreté visuelle des ongles et pédicure visible.
+
+harmonie :
+équilibre visuel général, proportions apparentes et présentation du pied.
+
+peau :
+aspect visuel de la peau uniquement, sans interprétation médicale.
+
+originalite :
+caractère distinctif, atypique ou mémorable du spécimen.
+Une note élevée signifie visuellement original, pas nécessairement plus beau.
+
+qualite_photo :
+netteté, luminosité, cadrage et visibilité suffisante pour juger le pied.
+
+La note "esthétique" et l'"indice PiedDex" seront calculés ensuite par Python.
+Ne les calcule pas toi-même.
+
+Réponds UNIQUEMENT avec un objet JSON valide et très court.
+
+Si invalide :
+{
+  "photo_valide": false,
+  "raison": "raison courte",
+  "soin_general": 0,
+  "ongles_pedicure": 0,
+  "harmonie": 0,
+  "peau": 0,
+  "originalite": 0,
+  "qualite_photo": 0,
+  "description": ""
+}
+
+Si valide :
+{
+  "photo_valide": true,
+  "raison": "",
+  "soin_general": 0.0,
+  "ongles_pedicure": 0.0,
+  "harmonie": 0.0,
+  "peau": 0.0,
+  "originalite": 0.0,
+  "qualite_photo": 0.0,
+  "description": "Une phrase PiedDex humoristique de moins de 18 mots."
+}
+"""
+
+    response = openai_client.responses.create(
+        model=OPENAI_MODEL,
+        reasoning={"effort": "none"},
+        text={"verbosity": "low"},
+        max_output_tokens=250,
+        store=False,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": prompt
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:image/jpeg;base64,{image_b64}",
+                        "detail": "low"
+                    }
+                ]
+            }
+        ]
+    )
+
+    data = parse_json_response(response.output_text)
+
+    if not bool(data.get("photo_valide", False)):
+        return {
+            "photo_valide": False,
+            "raison": str(
+                data.get(
+                    "raison",
+                    "Aucun pied exploitable n'a été détecté."
+                )
+            )
+        }
+
+    soin = clamp_score(data.get("soin_general"))
+    ongles = clamp_score(data.get("ongles_pedicure"))
+    harmonie = clamp_score(data.get("harmonie"))
+    peau = clamp_score(data.get("peau"))
+    originalite = clamp_score(data.get("originalite"))
+    qualite = clamp_score(data.get("qualite_photo"))
+
+    # Si l'IA voit bien un pied mais ne peut pas le juger correctement,
+    # on préfère demander une nouvelle photo plutôt que donner une mauvaise note.
+    if qualite < 4.0:
+        return {
+            "photo_valide": False,
+            "raison": (
+                "Le pied est détecté, mais la photo n'est pas assez nette "
+                "ou bien cadrée. Reprends-la de plus près."
+            )
+        }
+
+    # Esthétique : 4 critères visibles.
+    esthetique = round(
+        soin * 0.30
+        + ongles * 0.25
+        + harmonie * 0.25
+        + peau * 0.20,
         1
-    ]
+    )
 
-    return random.choices(
-        scores,
-        weights=weights,
-        k=1
-    )[0]
+    # L'indice PiedDex garde l'esthétique majoritaire,
+    # tout en récompensant les spécimens vraiment originaux.
+    indice = round(
+        esthetique * 0.70
+        + originalite * 0.30,
+        1
+    )
+
+    return {
+        "photo_valide": True,
+        "raison": "",
+        "soin_general": round(soin, 1),
+        "ongles_pedicure": round(ongles, 1),
+        "harmonie": round(harmonie, 1),
+        "peau": round(peau, 1),
+        "originalite": round(originalite, 1),
+        "qualite_photo": round(qualite, 1),
+        "esthetique": esthetique,
+        "indice_pieddex": indice,
+        "description": str(data.get("description", "")).strip()
+    }
 
 
 def rarity_name(score):
+    score = float(score)
 
-    if score <= 3:
+    if score < 4.0:
         return "COMMUN"
-
-    elif score <= 5:
+    elif score < 6.0:
         return "PEU COMMUN"
-
-    elif score <= 7:
+    elif score < 7.5:
         return "RARE"
-
-    elif score == 8:
+    elif score < 8.5:
         return "ÉPIQUE"
-
-    elif score == 9:
+    elif score < 9.5:
         return "LÉGENDAIRE"
-
-    else:
-        return "MYTHIQUE"
+    return "MYTHIQUE"
 
 
 def rarity_symbol(score):
+    score = float(score)
 
-    if score <= 3:
+    if score < 4.0:
         return "◇"
-
-    elif score <= 5:
+    elif score < 6.0:
         return "◆"
-
-    elif score <= 7:
+    elif score < 7.5:
         return "✦"
-
-    elif score == 8:
+    elif score < 8.5:
         return "✦✦"
-
-    elif score == 9:
+    elif score < 9.5:
         return "★"
-
-    else:
-        return "✺"
+    return "✺"
 
 
 def rarity_style(score):
+    score = float(score)
 
-    if score <= 3:
-
+    if score < 4.0:
         return {
             "color": "#C7D0DF",
             "border": "#7F8A9D",
             "background": "#171C25",
             "glow": "rgba(190,205,225,0.22)"
         }
-
-    elif score <= 5:
-
+    elif score < 6.0:
         return {
             "color": "#68E29A",
             "border": "#3CBF75",
             "background": "#102319",
             "glow": "rgba(69,220,132,0.32)"
         }
-
-    elif score <= 7:
-
+    elif score < 7.5:
         return {
             "color": "#61B8FF",
             "border": "#398FE4",
             "background": "#0D2137",
             "glow": "rgba(61,165,255,0.40)"
         }
-
-    elif score == 8:
-
+    elif score < 8.5:
         return {
             "color": "#C38AFF",
             "border": "#9B58E8",
             "background": "#24123B",
             "glow": "rgba(181,105,255,0.48)"
         }
-
-    elif score == 9:
-
+    elif score < 9.5:
         return {
             "color": "#FFD45C",
             "border": "#DBA526",
             "background": "#34270C",
             "glow": "rgba(255,207,70,0.55)"
         }
-
     else:
-
         return {
             "color": "#FF79D2",
             "border": "#F047B6",
             "background": "#371129",
             "glow": "rgba(255,86,197,0.67)"
         }
+
+
+def display_score(value):
+    try:
+        return f"{float(value):.1f}"
+    except Exception:
+        return "0.0"
+
+
+def capture_index(capture):
+    """
+    Compatibilité avec les anciennes captures :
+    si indice_pieddex n'existe pas encore, on reprend score.
+    """
+    value = capture.get("indice_pieddex")
+    if value is None:
+        value = capture.get("score", 0)
+    return float(value or 0)
 
 
 # ============================================================
@@ -577,34 +769,25 @@ def create_signed_photo_url(photo_path):
         return None
 
 
-def save_capture(photo_bytes, name, score):
+def save_capture(photo_bytes, name, analysis):
 
     user_id = st.session_state.user_id
 
     if not user_id:
-        raise Exception(
-            "Utilisateur non connecté."
-        )
+        raise Exception("Utilisateur non connecté.")
 
     capture_uuid = uuid.uuid4().hex
 
     filename = (
-        datetime.now().strftime(
-            "%Y%m%d_%H%M%S"
-        )
+        datetime.now().strftime("%Y%m%d_%H%M%S")
         + "_"
         + capture_uuid[:8]
         + ".jpg"
     )
 
-    photo_path = (
-        f"{user_id}/{filename}"
-    )
+    photo_path = f"{user_id}/{filename}"
 
-    # --------------------------------------------------------
-    # UPLOAD PHOTO
-    # --------------------------------------------------------
-
+    # On conserve la photo originale dans Supabase.
     (
         supabase
         .storage
@@ -621,14 +804,14 @@ def save_capture(photo_bytes, name, score):
 
     number = get_next_number()
 
-    rarete = rarity_name(score)
+    indice = float(analysis["indice_pieddex"])
+    rarete = rarity_name(indice)
 
-    # --------------------------------------------------------
-    # INSERTION TABLE
-    # --------------------------------------------------------
+    # score reste un entier pour compatibilité avec ta colonne actuelle.
+    # indice_pieddex garde la vraie note décimale (ex. 8.1).
+    score_legacy = int(round(indice))
 
     try:
-
         (
             supabase
             .table("captures")
@@ -636,33 +819,33 @@ def save_capture(photo_bytes, name, score):
                 "user_id": user_id,
                 "numero": number,
                 "nom": name,
-                "score": score,
+                "score": score_legacy,
                 "rarete": rarete,
-                "photo_path": photo_path
+                "photo_path": photo_path,
+                "esthetique": analysis["esthetique"],
+                "originalite": analysis["originalite"],
+                "indice_pieddex": indice,
+                "soin_general": analysis["soin_general"],
+                "ongles_pedicure": analysis["ongles_pedicure"],
+                "harmonie": analysis["harmonie"],
+                "peau": analysis["peau"],
+                "qualite_photo": analysis["qualite_photo"],
+                "description": analysis["description"]
             })
             .execute()
         )
 
     except Exception:
-
-        # Si la DB refuse l'insertion,
-        # on retire la photo envoyée.
         try:
-
             (
                 supabase
                 .storage
                 .from_(BUCKET_NAME)
-                .remove([
-                    photo_path
-                ])
+                .remove([photo_path])
             )
-
-        except:
+        except Exception:
             pass
-
         raise
-
 
 def delete_capture(capture):
 
@@ -712,7 +895,7 @@ def delete_capture(capture):
 def inject_card_style(capture):
 
     style = rarity_style(
-        int(capture["score"])
+        capture_index(capture)
     )
 
     key = (
@@ -845,18 +1028,12 @@ def inject_analysis_style(score):
 )
 def show_specimen(capture):
 
-    score = int(
-        capture.get("score", 0)
-    )
-
-    style = rarity_style(score)
-
+    score = capture_index(capture)
     photo_url = create_signed_photo_url(
         capture.get("photo_path")
     )
 
     if photo_url:
-
         st.image(
             photo_url,
             width="stretch"
@@ -867,70 +1044,75 @@ def show_specimen(capture):
         f"{capture.get('nom', 'Sans nom')}"
     )
 
-    col1, col2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
 
-    with col1:
-
+    with c1:
         st.metric(
-            "Rareté",
-            f"{score}/10"
+            "Esthétique",
+            f"{display_score(capture.get('esthetique', score))}/10"
         )
 
-    with col2:
-
+    with c2:
         st.metric(
-            "Classe",
-            capture.get(
-                "rarete",
-                rarity_name(score)
-            )
+            "Originalité",
+            f"{display_score(capture.get('originalite', 0))}/10"
+        )
+
+    with c3:
+        st.metric(
+            "Indice PiedDex",
+            f"{display_score(score)}/10"
         )
 
     st.markdown(
-        f"**{rarity_symbol(score)} "
-        f"{rarity_name(score)}**"
+        f"### {rarity_symbol(score)} {rarity_name(score)}"
     )
 
+    if capture.get("description"):
+        st.info(capture["description"])
+
+    detailed_values = [
+        ("Soin général", capture.get("soin_general")),
+        ("Ongles / pédicure", capture.get("ongles_pedicure")),
+        ("Harmonie", capture.get("harmonie")),
+        ("Peau", capture.get("peau")),
+        ("Qualité photo", capture.get("qualite_photo")),
+    ]
+
+    if any(value is not None for _, value in detailed_values):
+        st.write("#### Détail de l'analyse")
+
+        for label, value in detailed_values:
+            if value is not None:
+                st.progress(
+                    float(value) / 10,
+                    text=f"{label} — {display_score(value)}/10"
+                )
+
     date_capture = str(
-        capture.get(
-            "date_capture",
-            ""
-        )
+        capture.get("date_capture", "")
     )
 
     if date_capture:
-
         st.caption(
-            f"Capturé le "
-            f"{date_capture[:10]}"
+            f"Capturé le {date_capture[:10]}"
         )
 
     st.divider()
-
-    st.warning(
-        "La suppression est définitive."
-    )
+    st.warning("La suppression est définitive.")
 
     if st.button(
         "🗑️ Supprimer ce spécimen",
         key=f"delete_{capture['id']}",
         width="stretch"
     ):
-
         try:
-
             delete_capture(capture)
-
-            st.success(
-                "Spécimen supprimé."
-            )
-
+            st.success("Spécimen supprimé.")
             time.sleep(0.5)
-
             st.rerun()
 
         except Exception as e:
-
             st.error(
                 f"Suppression impossible : {e}"
             )
@@ -1209,13 +1391,10 @@ tab_capture, tab_collection, tab_profile = st.tabs(
 
 with tab_capture:
 
-    st.subheader(
-        "Scanner de spécimen"
-    )
+    st.subheader("Scanner de spécimen")
 
     st.info(
-        "Prends une photo du pied, "
-        "donne-lui un nom puis lance l'analyse."
+        "Prends une photo du pied, donne-lui un nom puis lance l'analyse."
     )
 
     photo = st.camera_input(
@@ -1241,156 +1420,173 @@ with tab_capture:
         ):
 
             if not nom.strip():
-
                 st.warning(
                     "Entre d'abord le nom du spécimen."
                 )
 
             else:
+                try:
+                    with st.spinner(
+                        "🔬 Analyse visuelle réelle du spécimen..."
+                    ):
+                        analysis = analyser_pied(
+                            photo.getvalue()
+                        )
 
-                with st.spinner(
-                    "Analyse du spécimen..."
-                ):
+                    if not analysis.get("photo_valide"):
+                        st.session_state.analysis_score = None
+                        st.session_state.analysis_name = None
+                        st.session_state.analysis_photo = None
+                        st.session_state.analysis_details = None
 
-                    time.sleep(0.8)
+                        st.error(
+                            "❌ Capture refusée : "
+                            + analysis.get(
+                                "raison",
+                                "Aucun pied exploitable détecté."
+                            )
+                        )
 
-                    score = (
-                        generate_rarity()
+                    else:
+                        st.session_state.analysis_score = (
+                            analysis["indice_pieddex"]
+                        )
+                        st.session_state.analysis_name = nom.strip()
+                        st.session_state.analysis_photo = photo.getvalue()
+                        st.session_state.analysis_details = analysis
+
+                except Exception as e:
+                    st.error(
+                        "L'analyse IA a échoué. "
+                        f"Détail : {e}"
                     )
-
-                st.session_state.analysis_score = (
-                    score
-                )
-
-                st.session_state.analysis_name = (
-                    nom.strip()
-                )
-
-                st.session_state.analysis_photo = (
-                    photo.getvalue()
-                )
-
 
         # ====================================================
         # RESULTAT ANALYSE
         # ====================================================
 
         if (
-            st.session_state.analysis_score
-            is not None
-            and
-            st.session_state.analysis_photo
-            is not None
+            st.session_state.analysis_score is not None
+            and st.session_state.analysis_photo is not None
+            and st.session_state.analysis_details is not None
         ):
 
-            score = (
+            score = float(
                 st.session_state.analysis_score
             )
+            name = st.session_state.analysis_name
+            analysis = st.session_state.analysis_details
 
-            name = (
-                st.session_state.analysis_name
-            )
-
-            inject_analysis_style(
-                score
-            )
+            inject_analysis_style(score)
 
             with st.container(
                 key="analysis_result"
             ):
 
-                st.caption(
-                    "ANALYSE TERMINÉE"
-                )
+                st.caption("ANALYSE TERMINÉE")
 
                 st.subheader(
-                    f"{rarity_symbol(score)} "
-                    f"{name.upper()}"
+                    f"{rarity_symbol(score)} {name.upper()}"
                 )
 
+                a1, a2 = st.columns(2)
+
+                with a1:
+                    st.metric(
+                        "Esthétique",
+                        f"{analysis['esthetique']:.1f}/10"
+                    )
+
+                with a2:
+                    st.metric(
+                        "Originalité",
+                        f"{analysis['originalite']:.1f}/10"
+                    )
+
                 st.metric(
-                    "NOTE DE RARETÉ",
-                    f"{score}/10"
+                    "INDICE PIEDDEX",
+                    f"{score:.1f}/10"
                 )
 
                 st.markdown(
-                    f"### {rarity_name(score)}"
+                    f"### {rarity_symbol(score)} {rarity_name(score)}"
                 )
 
-
-                if score <= 3:
-
-                    st.write(
-                        "Spécimen commun."
+                if analysis.get("description"):
+                    st.info(
+                        analysis["description"]
                     )
 
-                elif score <= 5:
+                st.write("#### Analyse détaillée")
 
-                    st.write(
-                        "Une capture peu commune."
+                st.progress(
+                    analysis["soin_general"] / 10,
+                    text=(
+                        "Soin général — "
+                        f"{analysis['soin_general']:.1f}/10"
                     )
+                )
 
-                elif score <= 7:
-
-                    st.write(
-                        "Belle trouvaille : "
-                        "spécimen rare."
+                st.progress(
+                    analysis["ongles_pedicure"] / 10,
+                    text=(
+                        "Ongles / pédicure — "
+                        f"{analysis['ongles_pedicure']:.1f}/10"
                     )
+                )
 
-                elif score == 8:
-
-                    st.write(
-                        "⚡ Capture ÉPIQUE !"
+                st.progress(
+                    analysis["harmonie"] / 10,
+                    text=(
+                        "Harmonie — "
+                        f"{analysis['harmonie']:.1f}/10"
                     )
+                )
 
-                elif score == 9:
-
-                    st.write(
-                        "✨ SPÉCIMEN LÉGENDAIRE !"
+                st.progress(
+                    analysis["peau"] / 10,
+                    text=(
+                        "Aspect de la peau — "
+                        f"{analysis['peau']:.1f}/10"
                     )
+                )
 
-                else:
-
-                    st.write(
-                        "🌟 SPÉCIMEN MYTHIQUE 🌟"
-                    )
-
+                st.caption(
+                    "Qualité de la photo : "
+                    f"{analysis['qualite_photo']:.1f}/10"
+                )
 
                 if st.button(
                     "💾 AJOUTER À MON PIEDDEX",
                     type="primary",
                     width="stretch"
                 ):
-
                     try:
-
                         with st.spinner(
                             "Enregistrement..."
                         ):
-
                             save_capture(
                                 st.session_state.analysis_photo,
                                 st.session_state.analysis_name,
-                                st.session_state.analysis_score
+                                st.session_state.analysis_details
                             )
+
+                        if score >= 9.5:
+                            st.balloons()
 
                         st.session_state.analysis_score = None
                         st.session_state.analysis_name = None
                         st.session_state.analysis_photo = None
+                        st.session_state.analysis_details = None
 
                         st.success(
                             "✨ Spécimen ajouté au PiedDex !"
                         )
 
-                        if score >= 9:
-                            st.balloons()
-
                         time.sleep(0.6)
-
                         st.rerun()
 
                     except Exception as e:
-
                         st.error(
                             f"Impossible d'enregistrer : {e}"
                         )
@@ -1404,23 +1600,17 @@ with tab_collection:
 
     captures = get_captures()
 
-    st.subheader(
-        "Ma collection"
-    )
-
+    st.subheader("Ma collection")
     st.caption(
         f"{len(captures)} spécimen(s) découvert(s)"
     )
 
-
     if not captures:
-
         st.info(
             "Ton PiedDex est vide pour le moment."
         )
 
     else:
-
         sort_option = st.selectbox(
             "Trier",
             [
@@ -1431,41 +1621,25 @@ with tab_collection:
             ]
         )
 
-
         if sort_option == "Plus anciennes":
-
             captures = list(
                 reversed(captures)
             )
 
-
-        elif (
-            sort_option
-            == "Rareté décroissante"
-        ):
-
+        elif sort_option == "Rareté décroissante":
             captures = sorted(
                 captures,
-                key=lambda x:
-                    int(x["score"]),
+                key=capture_index,
                 reverse=True
             )
 
-
-        elif (
-            sort_option
-            == "Rareté croissante"
-        ):
-
+        elif sort_option == "Rareté croissante":
             captures = sorted(
                 captures,
-                key=lambda x:
-                    int(x["score"])
+                key=capture_index
             )
 
-
         st.divider()
-
 
         # ====================================================
         # GRILLE 4 PAR LIGNE
@@ -1481,47 +1655,27 @@ with tab_collection:
                 4
             ):
 
-                row = captures[
-                    i:i + 4
-                ]
+                row = captures[i:i + 4]
 
                 cols = st.columns(
                     4,
                     gap="small"
                 )
 
-
-                for index, col in enumerate(
-                    cols
-                ):
+                for index, col in enumerate(cols):
 
                     if index >= len(row):
                         continue
 
-
                     capture = row[index]
+                    score = capture_index(capture)
 
-                    score = int(
-                        capture.get(
-                            "score",
-                            0
-                        )
-                    )
-
-                    style = (
-                        rarity_style(score)
-                    )
-
-                    inject_card_style(
-                        capture
-                    )
-
+                    inject_card_style(capture)
 
                     with col:
 
                         card_key = (
-                            f"card_"
-                            f"{capture['id']}"
+                            f"card_{capture['id']}"
                         )
 
                         with st.container(
@@ -1537,43 +1691,30 @@ with tab_collection:
                                 )
                             )
 
-
                             if photo_url:
-
                                 st.image(
                                     photo_url,
                                     width="stretch"
                                 )
 
-
                             st.caption(
                                 f"#{int(capture.get('numero', 0)):03d}"
                             )
-
 
                             st.markdown(
                                 f"**{capture.get('nom', 'Sans nom')}**"
                             )
 
-
                             st.markdown(
-                                f":{''}"
-                                if False
-                                else
                                 f"**{rarity_symbol(score)} "
-                                f"{score}/10**"
+                                f"{score:.1f}/10**"
                             )
-
 
                             if st.button(
                                 "Voir",
-                                key=(
-                                    f"view_"
-                                    f"{capture['id']}"
-                                ),
+                                key=f"view_{capture['id']}",
                                 width="stretch"
                             ):
-
                                 show_specimen(
                                     capture
                                 )
@@ -1587,110 +1728,79 @@ with tab_profile:
 
     captures = get_captures()
 
-    st.subheader(
-        "👤 Mon profil"
-    )
+    st.subheader("👤 Mon profil")
 
     st.write(
-        f"**Compte :** "
-        f"{st.session_state.user_email}"
+        f"**Compte :** {st.session_state.user_email}"
     )
 
     total = len(captures)
 
-
     if captures:
-
         scores = [
-            int(
-                capture.get(
-                    "score",
-                    0
-                )
-            )
+            capture_index(capture)
             for capture in captures
         ]
 
         best_score = max(scores)
-
         average_score = (
-            sum(scores)
-            / len(scores)
+            sum(scores) / len(scores)
         )
-
     else:
-
         best_score = 0
-
         average_score = 0
-
 
     c1, c2, c3 = st.columns(3)
 
-
     with c1:
-
         st.metric(
             "Captures",
             total
         )
 
-
     with c2:
-
         st.metric(
             "Moyenne",
             f"{average_score:.1f}/10"
         )
 
-
     with c3:
-
         st.metric(
             "Record",
-            f"{best_score}/10"
+            f"{best_score:.1f}/10"
         )
-
 
     st.divider()
 
-
     common_count = sum(
-        1
-        for c in captures
-        if int(c.get("score", 0)) <= 3
+        1 for c in captures
+        if capture_index(c) < 4.0
     )
 
     uncommon_count = sum(
-        1
-        for c in captures
-        if 4 <= int(c.get("score", 0)) <= 5
+        1 for c in captures
+        if 4.0 <= capture_index(c) < 6.0
     )
 
     rare_count = sum(
-        1
-        for c in captures
-        if 6 <= int(c.get("score", 0)) <= 7
+        1 for c in captures
+        if 6.0 <= capture_index(c) < 7.5
     )
 
     epic_count = sum(
-        1
-        for c in captures
-        if int(c.get("score", 0)) == 8
+        1 for c in captures
+        if 7.5 <= capture_index(c) < 8.5
     )
 
     legendary_count = sum(
-        1
-        for c in captures
-        if int(c.get("score", 0)) == 9
+        1 for c in captures
+        if 8.5 <= capture_index(c) < 9.5
     )
 
     mythic_count = sum(
-        1
-        for c in captures
-        if int(c.get("score", 0)) == 10
+        1 for c in captures
+        if capture_index(c) >= 9.5
     )
-
 
     st.write(
         f"◇ **Communs :** {common_count}"
@@ -1716,9 +1826,7 @@ with tab_profile:
         f"🌟 **Mythiques :** {mythic_count}"
     )
 
-
     st.divider()
-
 
     if st.button(
         "🚪 SE DÉCONNECTER",
@@ -1728,7 +1836,7 @@ with tab_profile:
 
         try:
             supabase.auth.sign_out()
-        except:
+        except Exception:
             pass
 
         for key in defaults:
