@@ -46,6 +46,7 @@ defaults = {
     "analysis_photo": None,
     "analysis_data": None,
     "analysis_error": None,
+    "profile_pseudo": None,
 }
 
 for key, value in defaults.items():
@@ -766,6 +767,330 @@ def delete_capture(capture):
             pass
 
 
+
+# ============================================================
+# PROFILS + AMIS
+# ============================================================
+
+def get_my_profile():
+    if not st.session_state.user_id:
+        return None
+
+    try:
+        response = (
+            supabase
+            .table("profiles")
+            .select("user_id,pseudo,avatar_url,created_at")
+            .eq("user_id", st.session_state.user_id)
+            .limit(1)
+            .execute()
+        )
+
+        if response.data:
+            profile = response.data[0]
+            st.session_state.profile_pseudo = profile.get("pseudo")
+            return profile
+
+        st.session_state.profile_pseudo = None
+        return None
+
+    except Exception as e:
+        st.error(f"Impossible de charger ton profil : {e}")
+        return None
+
+
+def create_my_profile(pseudo):
+    pseudo = pseudo.strip()
+
+    if len(pseudo) < 3:
+        raise ValueError("Le pseudo doit contenir au moins 3 caractères.")
+
+    if len(pseudo) > 24:
+        raise ValueError("Le pseudo doit contenir au maximum 24 caractères.")
+
+    if not re.fullmatch(r"[A-Za-zÀ-ÿ0-9_\- ]+", pseudo):
+        raise ValueError(
+            "Utilise seulement des lettres, chiffres, espaces, _ ou -."
+        )
+
+    response = (
+        supabase
+        .table("profiles")
+        .insert({
+            "user_id": st.session_state.user_id,
+            "pseudo": pseudo,
+        })
+        .execute()
+    )
+
+    st.session_state.profile_pseudo = pseudo
+    return response.data
+
+
+def update_my_pseudo(new_pseudo):
+    new_pseudo = new_pseudo.strip()
+
+    if len(new_pseudo) < 3:
+        raise ValueError("Le pseudo doit contenir au moins 3 caractères.")
+
+    if len(new_pseudo) > 24:
+        raise ValueError("Le pseudo doit contenir au maximum 24 caractères.")
+
+    if not re.fullmatch(r"[A-Za-zÀ-ÿ0-9_\- ]+", new_pseudo):
+        raise ValueError(
+            "Utilise seulement des lettres, chiffres, espaces, _ ou -."
+        )
+
+    (
+        supabase
+        .table("profiles")
+        .update({"pseudo": new_pseudo})
+        .eq("user_id", st.session_state.user_id)
+        .execute()
+    )
+
+    st.session_state.profile_pseudo = new_pseudo
+
+
+def search_profiles(query):
+    query = query.strip()
+
+    if len(query) < 2:
+        return []
+
+    try:
+        response = (
+            supabase
+            .table("profiles")
+            .select("user_id,pseudo")
+            .ilike("pseudo", f"%{query}%")
+            .neq("user_id", st.session_state.user_id)
+            .limit(12)
+            .execute()
+        )
+        return response.data or []
+
+    except Exception as e:
+        st.error(f"Recherche impossible : {e}")
+        return []
+
+
+def get_friendships():
+    try:
+        response = (
+            supabase
+            .table("friendships")
+            .select("id,requester_id,addressee_id,status,created_at")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return response.data or []
+
+    except Exception as e:
+        st.error(f"Impossible de charger les amis : {e}")
+        return []
+
+
+def get_profiles_map(user_ids):
+    ids = list({str(uid) for uid in user_ids if uid})
+
+    if not ids:
+        return {}
+
+    try:
+        response = (
+            supabase
+            .table("profiles")
+            .select("user_id,pseudo")
+            .in_("user_id", ids)
+            .execute()
+        )
+
+        return {
+            str(p["user_id"]): p.get("pseudo", "Joueur")
+            for p in (response.data or [])
+        }
+
+    except Exception:
+        return {}
+
+
+def relationship_with(other_user_id, friendships=None):
+    uid = st.session_state.user_id
+    friendships = friendships if friendships is not None else get_friendships()
+
+    for relation in friendships:
+        requester = str(relation.get("requester_id"))
+        addressee = str(relation.get("addressee_id"))
+
+        if (
+            (requester == uid and addressee == other_user_id)
+            or
+            (requester == other_user_id and addressee == uid)
+        ):
+            return relation
+
+    return None
+
+
+def send_friend_request(addressee_id):
+    if addressee_id == st.session_state.user_id:
+        raise ValueError("Tu ne peux pas t'ajouter toi-même.")
+
+    existing = relationship_with(addressee_id)
+
+    if existing:
+        status = existing.get("status")
+
+        if status == "accepted":
+            raise ValueError("Vous êtes déjà amis.")
+
+        if status == "pending":
+            raise ValueError("Une demande existe déjà.")
+
+        try:
+            (
+                supabase
+                .table("friendships")
+                .delete()
+                .eq("id", existing["id"])
+                .execute()
+            )
+        except Exception:
+            pass
+
+    (
+        supabase
+        .table("friendships")
+        .insert({
+            "requester_id": st.session_state.user_id,
+            "addressee_id": addressee_id,
+            "status": "pending",
+        })
+        .execute()
+    )
+
+
+def accept_friend_request(friendship_id):
+    (
+        supabase
+        .table("friendships")
+        .update({"status": "accepted"})
+        .eq("id", friendship_id)
+        .eq("addressee_id", st.session_state.user_id)
+        .execute()
+    )
+
+
+def reject_friend_request(friendship_id):
+    (
+        supabase
+        .table("friendships")
+        .delete()
+        .eq("id", friendship_id)
+        .eq("addressee_id", st.session_state.user_id)
+        .execute()
+    )
+
+
+def cancel_friend_request(friendship_id):
+    (
+        supabase
+        .table("friendships")
+        .delete()
+        .eq("id", friendship_id)
+        .eq("requester_id", st.session_state.user_id)
+        .execute()
+    )
+
+
+def remove_friend(friendship_id):
+    (
+        supabase
+        .table("friendships")
+        .delete()
+        .eq("id", friendship_id)
+        .execute()
+    )
+
+
+def split_friendships(friendships):
+    uid = st.session_state.user_id
+
+    incoming = []
+    outgoing = []
+    accepted = []
+
+    for relation in friendships:
+        status = relation.get("status")
+        requester = str(relation.get("requester_id"))
+        addressee = str(relation.get("addressee_id"))
+
+        if status == "accepted":
+            accepted.append(relation)
+
+        elif status == "pending" and addressee == uid:
+            incoming.append(relation)
+
+        elif status == "pending" and requester == uid:
+            outgoing.append(relation)
+
+    return incoming, outgoing, accepted
+
+
+def friend_other_user_id(relation):
+    uid = st.session_state.user_id
+    requester = str(relation.get("requester_id"))
+    addressee = str(relation.get("addressee_id"))
+
+    return addressee if requester == uid else requester
+
+
+def require_profile():
+    profile = get_my_profile()
+
+    if profile:
+        return profile
+
+    st.title("🦶 PIEDDEX")
+    st.subheader("Choisis ton pseudo")
+    st.write(
+        "Avant d'entrer dans PiedDex, choisis le nom sous lequel "
+        "tes amis pourront te trouver."
+    )
+
+    with st.form("first_profile_form"):
+        pseudo = st.text_input(
+            "Pseudo",
+            placeholder="Ex : PiedMaster31",
+            max_chars=24
+        )
+
+        create = st.form_submit_button(
+            "CRÉER MON PROFIL",
+            width="stretch"
+        )
+
+    if create:
+        try:
+            create_my_profile(pseudo)
+            st.success("Profil créé !")
+            time.sleep(0.4)
+            st.rerun()
+
+        except Exception as e:
+            message = str(e)
+
+            if "duplicate" in message.lower() or "unique" in message.lower():
+                st.error(
+                    "Ce pseudo est déjà pris. Choisis-en un autre."
+                )
+            else:
+                st.error(message)
+
+    st.stop()
+
+
 # ============================================================
 # CSS DYNAMIQUE
 # ============================================================
@@ -1129,6 +1454,8 @@ if not st.session_state.user_id:
     authentication_screen()
     st.stop()
 
+my_profile = require_profile()
+
 
 # ============================================================
 # HEADER
@@ -1151,7 +1478,8 @@ user_col, logout_col = st.columns(
 
 with user_col:
     st.caption(
-        f"🟢 {st.session_state.user_email}"
+        f"🟢 {st.session_state.profile_pseudo} · "
+        f"{st.session_state.user_email}"
     )
 
 with logout_col:
@@ -1174,10 +1502,11 @@ with logout_col:
 # ONGLETS
 # ============================================================
 
-tab_capture, tab_collection, tab_profile = st.tabs(
+tab_capture, tab_collection, tab_friends, tab_profile = st.tabs(
     [
         "📸 CAPTURER",
         "📚 MON PIEDDEX",
+        "👥 AMIS",
         "👤 PROFIL"
     ]
 )
@@ -1560,6 +1889,222 @@ with tab_collection:
                                 )
 
 
+
+# ============================================================
+# AMIS
+# ============================================================
+
+with tab_friends:
+
+    st.subheader("👥 Mes amis")
+    st.caption(
+        f"Ton pseudo : @{st.session_state.profile_pseudo}"
+    )
+
+    friendships = get_friendships()
+    incoming, outgoing, accepted = split_friendships(friendships)
+
+    all_related_ids = {
+        friend_other_user_id(relation)
+        for relation in friendships
+    }
+
+    profiles_map = get_profiles_map(all_related_ids)
+
+    st.markdown("### 🔎 Trouver un joueur")
+
+    search_query = st.text_input(
+        "Rechercher par pseudo",
+        placeholder="Entre au moins 2 caractères",
+        key="friend_search"
+    )
+
+    if search_query.strip():
+
+        if len(search_query.strip()) < 2:
+            st.caption("Entre au moins 2 caractères.")
+
+        else:
+            results = search_profiles(search_query)
+
+            if not results:
+                st.info("Aucun joueur trouvé.")
+
+            else:
+                current_friendships = get_friendships()
+
+                for player in results:
+                    other_id = str(player["user_id"])
+                    pseudo = player.get("pseudo", "Joueur")
+                    relation = relationship_with(
+                        other_id,
+                        current_friendships
+                    )
+
+                    left, right = st.columns([3, 2])
+
+                    with left:
+                        st.write(f"**@{pseudo}**")
+
+                    with right:
+                        if relation is None:
+                            if st.button(
+                                "➕ Ajouter",
+                                key=f"add_friend_{other_id}",
+                                width="stretch"
+                            ):
+                                try:
+                                    send_friend_request(other_id)
+                                    st.success(
+                                        f"Demande envoyée à @{pseudo}."
+                                    )
+                                    time.sleep(0.35)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.warning(str(e))
+
+                        elif relation.get("status") == "accepted":
+                            st.caption("✅ Déjà ami")
+
+                        elif relation.get("status") == "pending":
+                            requester = str(
+                                relation.get("requester_id")
+                            )
+
+                            if requester == st.session_state.user_id:
+                                st.caption("⏳ Demande envoyée")
+                            else:
+                                st.caption("📩 Demande reçue")
+
+    st.divider()
+
+    st.markdown(
+        f"### 📩 Demandes reçues ({len(incoming)})"
+    )
+
+    if not incoming:
+        st.caption("Aucune demande en attente.")
+
+    for relation in incoming:
+        other_id = friend_other_user_id(relation)
+        pseudo = profiles_map.get(other_id, "Joueur")
+
+        name_col, accept_col, reject_col = st.columns(
+            [3, 1.3, 1.3]
+        )
+
+        with name_col:
+            st.write(f"**@{pseudo}**")
+
+        with accept_col:
+            if st.button(
+                "✅",
+                key=f"accept_{relation['id']}",
+                help="Accepter",
+                width="stretch"
+            ):
+                try:
+                    accept_friend_request(relation["id"])
+                    st.success(
+                        f"@{pseudo} est maintenant ton ami."
+                    )
+                    time.sleep(0.3)
+                    st.rerun()
+                except Exception as e:
+                    st.error(
+                        f"Impossible d'accepter : {e}"
+                    )
+
+        with reject_col:
+            if st.button(
+                "✕",
+                key=f"reject_{relation['id']}",
+                help="Refuser",
+                width="stretch"
+            ):
+                try:
+                    reject_friend_request(relation["id"])
+                    st.rerun()
+                except Exception as e:
+                    st.error(
+                        f"Impossible de refuser : {e}"
+                    )
+
+    st.divider()
+
+    st.markdown(
+        f"### 🤝 Mes amis ({len(accepted)})"
+    )
+
+    if not accepted:
+        st.info(
+            "Tu n'as pas encore d'amis sur PiedDex. "
+            "Recherche un pseudo pour commencer."
+        )
+
+    for relation in accepted:
+        other_id = friend_other_user_id(relation)
+        pseudo = profiles_map.get(other_id, "Joueur")
+
+        name_col, action_col = st.columns(
+            [4, 1.5]
+        )
+
+        with name_col:
+            st.write(f"🟢 **@{pseudo}**")
+
+        with action_col:
+            if st.button(
+                "Retirer",
+                key=f"remove_friend_{relation['id']}",
+                width="stretch"
+            ):
+                try:
+                    remove_friend(relation["id"])
+                    st.rerun()
+                except Exception as e:
+                    st.error(
+                        f"Impossible de retirer cet ami : {e}"
+                    )
+
+    st.divider()
+
+    with st.expander(
+        f"⏳ Demandes envoyées ({len(outgoing)})"
+    ):
+        if not outgoing:
+            st.caption(
+                "Aucune demande envoyée en attente."
+            )
+
+        for relation in outgoing:
+            other_id = friend_other_user_id(relation)
+            pseudo = profiles_map.get(other_id, "Joueur")
+
+            name_col, cancel_col = st.columns(
+                [3, 1.5]
+            )
+
+            with name_col:
+                st.write(f"@{pseudo}")
+
+            with cancel_col:
+                if st.button(
+                    "Annuler",
+                    key=f"cancel_{relation['id']}",
+                    width="stretch"
+                ):
+                    try:
+                        cancel_friend_request(
+                            relation["id"]
+                        )
+                        st.rerun()
+                    except Exception as e:
+                        st.error(
+                            f"Impossible d'annuler : {e}"
+                        )
+
+
 # ============================================================
 # PROFIL
 # ============================================================
@@ -1573,9 +2118,39 @@ with tab_profile:
     )
 
     st.write(
+        f"**Pseudo :** @{st.session_state.profile_pseudo}"
+    )
+
+    st.write(
         f"**Compte :** "
         f"{st.session_state.user_email}"
     )
+
+    with st.expander("✏️ Modifier mon pseudo"):
+        new_pseudo = st.text_input(
+            "Nouveau pseudo",
+            value=st.session_state.profile_pseudo or "",
+            max_chars=24,
+            key="edit_profile_pseudo"
+        )
+
+        if st.button(
+            "ENREGISTRER LE PSEUDO",
+            key="save_new_pseudo",
+            width="stretch"
+        ):
+            try:
+                update_my_pseudo(new_pseudo)
+                st.success("Pseudo mis à jour.")
+                time.sleep(0.35)
+                st.rerun()
+            except Exception as e:
+                message = str(e)
+
+                if "duplicate" in message.lower() or "unique" in message.lower():
+                    st.error("Ce pseudo est déjà utilisé.")
+                else:
+                    st.error(message)
 
     total = len(captures)
 
