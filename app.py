@@ -1091,6 +1091,120 @@ def require_profile():
     st.stop()
 
 
+
+# ============================================================
+# CLASSEMENT ENTRE AMIS
+# ============================================================
+
+def get_friend_leaderboard():
+    """
+    Appelle la fonction SQL sécurisée Supabase.
+    Elle renvoie uniquement les statistiques de moi + mes amis acceptés,
+    sans exposer leurs captures ni leurs photos.
+    """
+    try:
+        response = (
+            supabase
+            .rpc("get_friend_leaderboard")
+            .execute()
+        )
+
+        rows = response.data or []
+
+        # Normalisation utile pour l'affichage Streamlit
+        for row in rows:
+            row["total_captures"] = int(row.get("total_captures") or 0)
+            row["score_pieddex"] = int(row.get("score_pieddex") or 0)
+            row["moyenne"] = float(row.get("moyenne") or 0)
+            row["meilleur"] = float(row.get("meilleur") or 0)
+            row["moyenne_esthetique"] = float(
+                row.get("moyenne_esthetique") or 0
+            )
+            row["moyenne_originalite"] = float(
+                row.get("moyenne_originalite") or 0
+            )
+
+        return rows
+
+    except Exception as e:
+        st.error(
+            "Impossible de charger le classement. "
+            "Vérifie que la fonction SQL get_friend_leaderboard "
+            f"a bien été créée dans Supabase. Détail : {e}"
+        )
+        return []
+
+
+def medal_for_rank(rank):
+    return {
+        1: "🥇",
+        2: "🥈",
+        3: "🥉",
+    }.get(rank, f"#{rank}")
+
+
+@st.dialog(
+    "Statistiques du joueur",
+    width="large"
+)
+def show_player_stats(player, rank, total_players):
+    pseudo = player.get("pseudo", "Joueur")
+    is_me = str(player.get("user_id")) == st.session_state.user_id
+
+    st.markdown(
+        f"## {'👤' if not is_me else '⭐'} @{pseudo}"
+    )
+
+    if is_me:
+        st.caption("C'est toi.")
+
+    st.markdown(
+        f"### {medal_for_rank(rank)} "
+        f"{rank}e sur {total_players}"
+        if rank > 1
+        else f"### 🥇 1er sur {total_players}"
+    )
+
+    st.metric(
+        "🏆 Points PiedDex",
+        f"{player['score_pieddex']} pts"
+    )
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.metric(
+            "Spécimens capturés",
+            player["total_captures"]
+        )
+        st.metric(
+            "Indice moyen",
+            f"{player['moyenne']:.1f}/10"
+        )
+
+    with c2:
+        st.metric(
+            "Meilleur spécimen",
+            f"{player['meilleur']:.1f}/10"
+        )
+        st.metric(
+            "Esthétique moyenne",
+            f"{player['moyenne_esthetique']:.1f}/10"
+        )
+
+    st.metric(
+        "Originalité moyenne",
+        f"{player['moyenne_originalite']:.1f}/10"
+    )
+
+    st.divider()
+
+    st.caption(
+        "Barème : Commun 0 · Peu commun 1 · Rare 15 · "
+        "Épique 50 · Légendaire 150 · Mythique 500"
+    )
+
+
 # ============================================================
 # CSS DYNAMIQUE
 # ============================================================
@@ -1502,11 +1616,12 @@ with logout_col:
 # ONGLETS
 # ============================================================
 
-tab_capture, tab_collection, tab_friends, tab_profile = st.tabs(
+tab_capture, tab_collection, tab_friends, tab_leaderboard, tab_profile = st.tabs(
     [
         "📸 CAPTURER",
         "📚 MON PIEDDEX",
         "👥 AMIS",
+        "🏆 CLASSEMENT",
         "👤 PROFIL"
     ]
 )
@@ -2103,6 +2218,162 @@ with tab_friends:
                         st.error(
                             f"Impossible d'annuler : {e}"
                         )
+
+
+
+# ============================================================
+# CLASSEMENT
+# ============================================================
+
+with tab_leaderboard:
+
+    st.subheader("🏆 Classement PiedDex")
+
+    st.caption(
+        "Le classement comprend uniquement toi et tes amis acceptés."
+    )
+
+    st.info(
+        "Points : ◇ Commun 0 · ◆ Peu commun 1 · ✦ Rare 15 · "
+        "✦✦ Épique 50 · ★ Légendaire 150 · ✺ Mythique 500"
+    )
+
+    leaderboard = get_friend_leaderboard()
+
+    if not leaderboard:
+        st.warning(
+            "Aucune donnée de classement disponible pour le moment."
+        )
+
+    else:
+        sort_mode = st.selectbox(
+            "Classer par",
+            [
+                "Points PiedDex",
+                "Nombre de spécimens",
+                "Meilleur spécimen",
+                "Meilleure moyenne"
+            ],
+            key="leaderboard_sort"
+        )
+
+        if sort_mode == "Nombre de spécimens":
+            leaderboard = sorted(
+                leaderboard,
+                key=lambda p: (
+                    p["total_captures"],
+                    p["score_pieddex"],
+                    p["meilleur"]
+                ),
+                reverse=True
+            )
+
+        elif sort_mode == "Meilleur spécimen":
+            leaderboard = sorted(
+                leaderboard,
+                key=lambda p: (
+                    p["meilleur"],
+                    p["score_pieddex"],
+                    p["moyenne"]
+                ),
+                reverse=True
+            )
+
+        elif sort_mode == "Meilleure moyenne":
+            leaderboard = sorted(
+                leaderboard,
+                key=lambda p: (
+                    p["moyenne"],
+                    p["score_pieddex"],
+                    p["total_captures"]
+                ),
+                reverse=True
+            )
+
+        else:
+            leaderboard = sorted(
+                leaderboard,
+                key=lambda p: (
+                    p["score_pieddex"],
+                    p["total_captures"],
+                    p["meilleur"],
+                    p["moyenne"]
+                ),
+                reverse=True
+            )
+
+        total_players = len(leaderboard)
+
+        st.divider()
+
+        for rank, player in enumerate(
+            leaderboard,
+            start=1
+        ):
+            is_me = (
+                str(player.get("user_id"))
+                == st.session_state.user_id
+            )
+
+            pseudo = player.get("pseudo", "Joueur")
+            medal = medal_for_rank(rank)
+
+            with st.container(border=True):
+                left, middle, right = st.columns(
+                    [1.1, 4, 2]
+                )
+
+                with left:
+                    st.markdown(
+                        f"### {medal}"
+                    )
+
+                with middle:
+                    suffix = " **(TOI)**" if is_me else ""
+                    st.markdown(
+                        f"**@{pseudo}**{suffix}"
+                    )
+
+                    st.caption(
+                        f"{player['total_captures']} spécimen(s) · "
+                        f"record {player['meilleur']:.1f}/10"
+                    )
+
+                with right:
+                    if sort_mode == "Nombre de spécimens":
+                        st.metric(
+                            "Spécimens",
+                            player["total_captures"]
+                        )
+
+                    elif sort_mode == "Meilleur spécimen":
+                        st.metric(
+                            "Record",
+                            f"{player['meilleur']:.1f}/10"
+                        )
+
+                    elif sort_mode == "Meilleure moyenne":
+                        st.metric(
+                            "Moyenne",
+                            f"{player['moyenne']:.1f}/10"
+                        )
+
+                    else:
+                        st.metric(
+                            "Points",
+                            f"{player['score_pieddex']}"
+                        )
+
+                if st.button(
+                    "Voir les statistiques",
+                    key=f"stats_{player['user_id']}_{sort_mode}",
+                    width="stretch"
+                ):
+                    show_player_stats(
+                        player,
+                        rank,
+                        total_players
+                    )
 
 
 # ============================================================
