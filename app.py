@@ -2,13 +2,14 @@ import streamlit as st
 from supabase import create_client
 from openai import OpenAI
 from PIL import Image, ImageOps
+import extra_streamlit_components as stx
 import base64
 import io
 import json
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 # ============================================================
@@ -32,6 +33,15 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 BUCKET_NAME = "pieddex-photos"
 VISION_MODEL = "gpt-5.6-luna"
 
+# Cookie utilisé uniquement pour "Rester connecté".
+# Le mot de passe n'est jamais stocké.
+REMEMBER_COOKIE = "pieddex_refresh_token"
+REMEMBER_DAYS = 30
+
+cookie_manager = stx.CookieManager(
+    key="pieddex_cookie_manager"
+)
+
 
 # ============================================================
 # SESSION
@@ -47,6 +57,7 @@ defaults = {
     "analysis_data": None,
     "analysis_error": None,
     "profile_pseudo": None,
+    "remember_login": False,
 }
 
 for key, value in defaults.items():
@@ -578,25 +589,101 @@ def save_auth_session(response):
     return bool(st.session_state.user_id)
 
 
+def persist_refresh_token(refresh_token):
+    """
+    Sauvegarde uniquement le refresh token dans le navigateur.
+    Aucun mot de passe n'est stocké.
+    """
+    if not refresh_token:
+        return
+
+    cookie_manager.set(
+        REMEMBER_COOKIE,
+        refresh_token,
+        key="set_pieddex_refresh",
+        expires_at=datetime.now() + timedelta(days=REMEMBER_DAYS),
+        secure=True,
+        same_site="strict",
+        path="/",
+    )
+
+
+def delete_persistent_login():
+    try:
+        cookie_manager.delete(
+            REMEMBER_COOKIE,
+            key="delete_pieddex_refresh",
+        )
+    except Exception:
+        pass
+
+
 def restore_auth_session():
+    """
+    1) Si Streamlit possède encore la session en mémoire, on la restaure.
+    2) Sinon, si le navigateur possède le cookie "Rester connecté",
+       Supabase échange le refresh token contre une nouvelle session.
+       Le nouveau refresh token est immédiatement remis dans le cookie
+       car Supabase fait tourner les refresh tokens.
+    """
+    # Session encore disponible dans Streamlit.
     if (
-        not st.session_state.access_token
-        or not st.session_state.refresh_token
+        st.session_state.access_token
+        and st.session_state.refresh_token
     ):
+        try:
+            response = supabase.auth.set_session(
+                st.session_state.access_token,
+                st.session_state.refresh_token
+            )
+            save_auth_session(response)
+
+            if st.session_state.remember_login and response.session:
+                persist_refresh_token(
+                    response.session.refresh_token
+                )
+            return
+
+        except Exception:
+            st.session_state.user_id = None
+            st.session_state.user_email = None
+            st.session_state.access_token = None
+            st.session_state.refresh_token = None
+
+    # Nouvelle session Streamlit : tentative automatique depuis le cookie.
+    try:
+        saved_refresh_token = cookie_manager.get(
+            REMEMBER_COOKIE
+        )
+    except Exception:
+        saved_refresh_token = None
+
+    if not saved_refresh_token:
         return
 
     try:
-        response = supabase.auth.set_session(
-            st.session_state.access_token,
-            st.session_state.refresh_token
+        response = supabase.auth.refresh_session(
+            saved_refresh_token
         )
-        save_auth_session(response)
+
+        if response and response.session:
+            save_auth_session(response)
+            st.session_state.remember_login = True
+
+            # Rotation du refresh token : on remplace l'ancien.
+            persist_refresh_token(
+                response.session.refresh_token
+            )
 
     except Exception:
+        # Cookie expiré/révoqué : on le retire et on revient à la connexion.
+        delete_persistent_login()
+
         st.session_state.user_id = None
         st.session_state.user_email = None
         st.session_state.access_token = None
         st.session_state.refresh_token = None
+        st.session_state.remember_login = False
 
 
 restore_auth_session()
@@ -1449,6 +1536,12 @@ def authentication_screen():
                 type="password"
             )
 
+            remember_me = st.checkbox(
+                "Rester connecté sur cet appareil pendant 30 jours",
+                value=True,
+                key="remember_me_login"
+            )
+
             submit_login = st.form_submit_button(
                 "SE CONNECTER",
                 width="stretch"
@@ -1471,6 +1564,15 @@ def authentication_screen():
                     )
 
                     save_auth_session(response)
+
+                    st.session_state.remember_login = remember_me
+
+                    if remember_me and response.session:
+                        persist_refresh_token(
+                            response.session.refresh_token
+                        )
+                    else:
+                        delete_persistent_login()
 
                     st.success(
                         "Connexion réussie."
@@ -1541,6 +1643,13 @@ def authentication_screen():
                     )
 
                     if save_auth_session(response):
+                        st.session_state.remember_login = True
+
+                        if response.session:
+                            persist_refresh_token(
+                                response.session.refresh_token
+                            )
+
                         st.success(
                             "Compte créé."
                         )
@@ -1605,6 +1714,8 @@ with logout_col:
             supabase.auth.sign_out()
         except Exception:
             pass
+
+        delete_persistent_login()
 
         for key in defaults:
             st.session_state[key] = defaults[key]
@@ -2524,6 +2635,8 @@ with tab_profile:
             supabase.auth.sign_out()
         except Exception:
             pass
+
+        delete_persistent_login()
 
         for key in defaults:
             st.session_state[key] = defaults[key]
