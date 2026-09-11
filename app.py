@@ -58,6 +58,7 @@ defaults = {
     "analysis_error": None,
     "profile_pseudo": None,
     "remember_login": False,
+    "selected_trade_id": None,
 }
 
 for key, value in defaults.items():
@@ -1179,6 +1180,206 @@ def require_profile():
 
 
 
+
+# ============================================================
+# ÉCHANGES — ÉTAPE 1 : CRÉER / OUVRIR UN SALON
+# ============================================================
+
+def create_trade_with_friend(friend_id):
+    """
+    Utilise la fonction SQL create_trade(p_friend_id).
+    La fonction Supabase vérifie elle-même que les deux joueurs
+    sont bien amis et qu'il n'existe pas déjà un échange ouvert.
+    """
+    response = (
+        supabase
+        .rpc(
+            "create_trade",
+            {"p_friend_id": friend_id}
+        )
+        .execute()
+    )
+
+    # Selon la version du client Supabase, un UUID peut revenir
+    # directement ou dans une petite structure.
+    if isinstance(response.data, str):
+        return response.data
+
+    if isinstance(response.data, list) and response.data:
+        item = response.data[0]
+        if isinstance(item, str):
+            return item
+        if isinstance(item, dict):
+            return (
+                item.get("create_trade")
+                or item.get("id")
+            )
+
+    return response.data
+
+
+def get_open_trades():
+    """
+    RLS limite automatiquement les résultats aux échanges
+    auxquels l'utilisateur connecté participe.
+    """
+    try:
+        response = (
+            supabase
+            .table("trades")
+            .select(
+                "id,player_1_id,player_2_id,status,"
+                "player_1_ready,player_2_ready,created_at"
+            )
+            .eq("status", "open")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return response.data or []
+
+    except Exception as e:
+        st.error(
+            f"Impossible de charger les échanges : {e}"
+        )
+        return []
+
+
+def get_trade_by_id(trade_id):
+    try:
+        response = (
+            supabase
+            .table("trades")
+            .select(
+                "id,player_1_id,player_2_id,status,"
+                "player_1_ready,player_2_ready,created_at"
+            )
+            .eq("id", trade_id)
+            .limit(1)
+            .execute()
+        )
+
+        if response.data:
+            return response.data[0]
+
+        return None
+
+    except Exception as e:
+        st.error(
+            f"Impossible d'ouvrir l'échange : {e}"
+        )
+        return None
+
+
+def trade_other_user_id(trade):
+    uid = st.session_state.user_id
+
+    player_1 = str(
+        trade.get("player_1_id")
+    )
+    player_2 = str(
+        trade.get("player_2_id")
+    )
+
+    return (
+        player_2
+        if player_1 == uid
+        else player_1
+    )
+
+
+@st.dialog(
+    "Salon d'échange",
+    width="large"
+)
+def show_trade_lobby(trade):
+    """
+    Première version du salon :
+    on peut créer et ouvrir les échanges.
+    La sélection des spécimens sera ajoutée à l'étape suivante.
+    """
+    other_id = trade_other_user_id(
+        trade
+    )
+
+    profiles = get_profiles_map(
+        [other_id]
+    )
+
+    other_pseudo = profiles.get(
+        other_id,
+        "Joueur"
+    )
+
+    me_is_player_1 = (
+        str(trade.get("player_1_id"))
+        == st.session_state.user_id
+    )
+
+    my_ready = (
+        bool(trade.get("player_1_ready"))
+        if me_is_player_1
+        else bool(trade.get("player_2_ready"))
+    )
+
+    friend_ready = (
+        bool(trade.get("player_2_ready"))
+        if me_is_player_1
+        else bool(trade.get("player_1_ready"))
+    )
+
+    st.markdown(
+        f"## 🔄 Échange avec @{other_pseudo}"
+    )
+
+    st.caption(
+        f"Salon : {trade.get('id')}"
+    )
+
+    st.divider()
+
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown("### TON OFFRE")
+        st.write(
+            "Aucun spécimen sélectionné pour le moment."
+        )
+        st.caption(
+            "À l'étape suivante, tu pourras ajouter jusqu'à 3 spécimens."
+        )
+
+        st.write(
+            "✅ Prêt"
+            if my_ready
+            else "⏳ Pas encore prêt"
+        )
+
+    with right:
+        st.markdown(
+            f"### OFFRE DE @{other_pseudo.upper()}"
+        )
+        st.write(
+            "Aucun spécimen affiché pour le moment."
+        )
+        st.caption(
+            "Les spécimens proposés par ton ami apparaîtront ici."
+        )
+
+        st.write(
+            "✅ Prêt"
+            if friend_ready
+            else "⏳ Pas encore prêt"
+        )
+
+    st.divider()
+
+    st.info(
+        "Le salon est créé et fonctionnel. "
+        "La prochaine étape ajoute les cartes à proposer, "
+        "le bouton « Je suis prêt » et la finalisation de l'échange."
+    )
+
+
 # ============================================================
 # CLASSEMENT ENTRE AMIS
 # ============================================================
@@ -1727,11 +1928,12 @@ with logout_col:
 # ONGLETS
 # ============================================================
 
-tab_capture, tab_collection, tab_friends, tab_leaderboard, tab_profile = st.tabs(
+tab_capture, tab_collection, tab_friends, tab_trades, tab_leaderboard, tab_profile = st.tabs(
     [
         "📸 CAPTURER",
         "📚 MON PIEDDEX",
         "👥 AMIS",
+        "🔄 ÉCHANGES",
         "🏆 CLASSEMENT",
         "👤 PROFIL"
     ]
@@ -2330,6 +2532,215 @@ with tab_friends:
                             f"Impossible d'annuler : {e}"
                         )
 
+
+
+
+# ============================================================
+# ÉCHANGES — CRÉER / OUVRIR
+# ============================================================
+
+with tab_trades:
+
+    st.subheader("🔄 Échanges")
+
+    st.caption(
+        "Crée un salon avec un ami ou reprends un échange déjà ouvert."
+    )
+
+    # --------------------------------------------------------
+    # CRÉER UN NOUVEL ÉCHANGE
+    # --------------------------------------------------------
+
+    st.markdown("### ➕ Nouvel échange")
+
+    friendships = get_friendships()
+    _, _, accepted_friendships = split_friendships(
+        friendships
+    )
+
+    accepted_friend_ids = [
+        friend_other_user_id(relation)
+        for relation in accepted_friendships
+    ]
+
+    friend_profiles = get_profiles_map(
+        accepted_friend_ids
+    )
+
+    if not accepted_friend_ids:
+        st.info(
+            "Tu dois d'abord avoir au moins un ami accepté "
+            "pour créer un échange."
+        )
+
+    else:
+        # Liste lisible pseudo -> user_id.
+        friend_choices = {}
+
+        for friend_id in accepted_friend_ids:
+            pseudo = friend_profiles.get(
+                friend_id,
+                "Joueur"
+            )
+            friend_choices[
+                f"@{pseudo}"
+            ] = friend_id
+
+        selected_friend_label = st.selectbox(
+            "Choisir un ami",
+            options=list(friend_choices.keys()),
+            key="trade_friend_select"
+        )
+
+        if st.button(
+            "🔄 OUVRIR UN ÉCHANGE",
+            key="create_trade_button",
+            width="stretch"
+        ):
+            friend_id = friend_choices[
+                selected_friend_label
+            ]
+
+            try:
+                with st.spinner(
+                    "Création du salon..."
+                ):
+                    trade_id = (
+                        create_trade_with_friend(
+                            friend_id
+                        )
+                    )
+
+                st.success(
+                    f"Salon ouvert avec {selected_friend_label}."
+                )
+
+                st.session_state.selected_trade_id = (
+                    str(trade_id)
+                    if trade_id
+                    else None
+                )
+
+                time.sleep(0.35)
+                st.rerun()
+
+            except Exception as e:
+                message = str(e)
+
+                if "open trade already exists" in message.lower():
+                    st.warning(
+                        "Tu as déjà un échange ouvert avec cet ami. "
+                        "Ouvre-le dans la liste ci-dessous."
+                    )
+
+                elif "accepted friend" in message.lower():
+                    st.warning(
+                        "Cet utilisateur n'est pas un ami accepté."
+                    )
+
+                else:
+                    st.error(
+                        f"Impossible de créer l'échange : {e}"
+                    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # ÉCHANGES OUVERTS
+    # --------------------------------------------------------
+
+    open_trades = get_open_trades()
+
+    st.markdown(
+        f"### 📬 Échanges ouverts ({len(open_trades)})"
+    )
+
+    if not open_trades:
+        st.info(
+            "Aucun échange ouvert pour le moment."
+        )
+
+    else:
+        other_ids = [
+            trade_other_user_id(trade)
+            for trade in open_trades
+        ]
+
+        trade_profiles = get_profiles_map(
+            other_ids
+        )
+
+        for trade in open_trades:
+            other_id = trade_other_user_id(
+                trade
+            )
+
+            pseudo = trade_profiles.get(
+                other_id,
+                "Joueur"
+            )
+
+            me_is_player_1 = (
+                str(trade.get("player_1_id"))
+                == st.session_state.user_id
+            )
+
+            my_ready = (
+                bool(trade.get("player_1_ready"))
+                if me_is_player_1
+                else bool(trade.get("player_2_ready"))
+            )
+
+            friend_ready = (
+                bool(trade.get("player_2_ready"))
+                if me_is_player_1
+                else bool(trade.get("player_1_ready"))
+            )
+
+            with st.container(
+                border=True
+            ):
+                name_col, status_col = st.columns(
+                    [3.5, 2]
+                )
+
+                with name_col:
+                    st.markdown(
+                        f"**🔄 @{pseudo}**"
+                    )
+
+                    created = str(
+                        trade.get("created_at", "")
+                    )
+
+                    if created:
+                        st.caption(
+                            f"Ouvert le {created[:10]}"
+                        )
+
+                with status_col:
+                    st.caption(
+                        "Toi : ✅"
+                        if my_ready
+                        else "Toi : ⏳"
+                    )
+                    st.caption(
+                        "Ami : ✅"
+                        if friend_ready
+                        else "Ami : ⏳"
+                    )
+
+                if st.button(
+                    "OUVRIR LE SALON",
+                    key=f"open_trade_{trade['id']}",
+                    width="stretch"
+                ):
+                    st.session_state.selected_trade_id = (
+                        str(trade["id"])
+                    )
+                    show_trade_lobby(
+                        trade
+                    )
 
 
 # ============================================================
