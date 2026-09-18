@@ -423,12 +423,31 @@ Utilise réellement toute l'échelle 0 à 10 : ne ramène pas automatiquement le
 vers 5.
 
 1) VALIDATION
-La photo doit montrer clairement au moins un pied humain réel, découvert, assez grand,
-net et suffisamment visible pour évaluer sa forme et ses orteils.
+La photo doit montrer clairement au moins un pied humain réel, assez grand, net et
+suffisamment visible pour évaluer sa forme et ses orteils.
+
+IMPORTANT — TONGS ET SANDALES :
+Une tong, une sandale ou toute chaussure très ouverte est AUTORISÉE si elle laisse
+suffisamment visibles le pied et les orteils pour effectuer une notation fiable.
+La présence d'une tong ou d'une sandale ne doit donc PAS, à elle seule, invalider
+la photo.
+
+Pour accepter une photo avec tong ou sandale, il faut notamment pouvoir observer :
+- les orteils et leurs proportions relatives ;
+- leur forme et leur disposition générale ;
+- les ongles suffisamment pour juger leur présentation ;
+- une portion suffisante du pied pour juger l'harmonie générale.
+
+Si une lanière masque seulement une petite zone mais que les critères essentiels
+restent clairement évaluables, accepte la photo. Pour un critère secondaire réellement
+masqué (par exemple une partie de la peau, la pilosité ou un accessoire), reste neutre
+sur ce critère au lieu d'inventer ce qui n'est pas visible.
 
 photo_valide=false si :
 - aucun pied humain n'est visible ;
-- chaussure ou chaussette masque le pied ;
+- une chaussure fermée ou une chaussette masque le pied ;
+- une sandale, tong ou autre élément masque trop les orteils ou les proportions pour
+  permettre une notation fiable ;
 - pied trop petit, flou, sombre ou largement masqué ;
 - proportions et orteils ne sont pas suffisamment visibles.
 
