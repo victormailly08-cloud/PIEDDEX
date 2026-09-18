@@ -2319,7 +2319,7 @@ with tab_collection:
 
 
 # ============================================================
-# AMIS
+# AMIS — ACTUALISATION AUTOMATIQUE TOUTES LES 5 SECONDES
 # ============================================================
 
 with tab_friends:
@@ -2328,16 +2328,7 @@ with tab_friends:
     st.caption(
         f"Ton pseudo : @{st.session_state.profile_pseudo}"
     )
-
-    friendships = get_friendships()
-    incoming, outgoing, accepted = split_friendships(friendships)
-
-    all_related_ids = {
-        friend_other_user_id(relation)
-        for relation in friendships
-    }
-
-    profiles_map = get_profiles_map(all_related_ids)
+    st.caption("🔄 Les demandes et la liste d’amis s’actualisent automatiquement toutes les 5 secondes.")
 
     st.markdown("### 🔎 Trouver un joueur")
 
@@ -2348,16 +2339,13 @@ with tab_friends:
     )
 
     if search_query.strip():
-
         if len(search_query.strip()) < 2:
             st.caption("Entre au moins 2 caractères.")
-
         else:
             results = search_profiles(search_query)
 
             if not results:
                 st.info("Aucun joueur trouvé.")
-
             else:
                 current_friendships = get_friendships()
 
@@ -2386,7 +2374,7 @@ with tab_friends:
                                     st.success(
                                         f"Demande envoyée à @{pseudo}."
                                     )
-                                    time.sleep(0.35)
+                                    time.sleep(0.2)
                                     st.rerun()
                                 except Exception as e:
                                     st.warning(str(e))
@@ -2398,7 +2386,6 @@ with tab_friends:
                             requester = str(
                                 relation.get("requester_id")
                             )
-
                             if requester == st.session_state.user_id:
                                 st.caption("⏳ Demande envoyée")
                             else:
@@ -2406,185 +2393,155 @@ with tab_friends:
 
     st.divider()
 
-    st.markdown(
-        f"### 📩 Demandes reçues ({len(incoming)})"
-    )
+    @st.fragment(run_every="5s")
+    def live_friendships():
+        friendships = get_friendships()
+        incoming, outgoing, accepted = split_friendships(friendships)
 
-    if not incoming:
-        st.caption("Aucune demande en attente.")
+        all_related_ids = {
+            friend_other_user_id(relation)
+            for relation in friendships
+        }
+        profiles_map = get_profiles_map(all_related_ids)
 
-    for relation in incoming:
-        other_id = friend_other_user_id(relation)
-        pseudo = profiles_map.get(other_id, "Joueur")
+        if st.button(
+            "🔄 Actualiser maintenant",
+            key="refresh_friends_now",
+            width="stretch"
+        ):
+            st.rerun(scope="fragment")
 
-        name_col, accept_col, reject_col = st.columns(
-            [3, 1.3, 1.3]
+        st.markdown(
+            f"### 📩 Demandes reçues ({len(incoming)})"
         )
 
-        with name_col:
-            st.write(f"**@{pseudo}**")
+        if not incoming:
+            st.caption("Aucune demande en attente.")
 
-        with accept_col:
-            if st.button(
-                "✅",
-                key=f"accept_{relation['id']}",
-                help="Accepter",
-                width="stretch"
-            ):
-                try:
-                    accept_friend_request(relation["id"])
-                    st.success(
-                        f"@{pseudo} est maintenant ton ami."
-                    )
-                    time.sleep(0.3)
-                    st.rerun()
-                except Exception as e:
-                    st.error(
-                        f"Impossible d'accepter : {e}"
-                    )
-
-        with reject_col:
-            if st.button(
-                "✕",
-                key=f"reject_{relation['id']}",
-                help="Refuser",
-                width="stretch"
-            ):
-                try:
-                    reject_friend_request(relation["id"])
-                    st.rerun()
-                except Exception as e:
-                    st.error(
-                        f"Impossible de refuser : {e}"
-                    )
-
-    st.divider()
-
-    st.markdown(
-        f"### 🤝 Mes amis ({len(accepted)})"
-    )
-
-    if not accepted:
-        st.info(
-            "Tu n'as pas encore d'amis sur PiedDex. "
-            "Recherche un pseudo pour commencer."
-        )
-
-    for relation in accepted:
-        other_id = friend_other_user_id(relation)
-        pseudo = profiles_map.get(other_id, "Joueur")
-
-        name_col, action_col = st.columns(
-            [4, 1.5]
-        )
-
-        with name_col:
-            st.write(f"🟢 **@{pseudo}**")
-
-        with action_col:
-            if st.button(
-                "Retirer",
-                key=f"remove_friend_{relation['id']}",
-                width="stretch"
-            ):
-                try:
-                    remove_friend(relation["id"])
-                    st.rerun()
-                except Exception as e:
-                    st.error(
-                        f"Impossible de retirer cet ami : {e}"
-                    )
-
-    st.divider()
-
-    with st.expander(
-        f"⏳ Demandes envoyées ({len(outgoing)})"
-    ):
-        if not outgoing:
-            st.caption(
-                "Aucune demande envoyée en attente."
-            )
-
-        for relation in outgoing:
+        for relation in incoming:
             other_id = friend_other_user_id(relation)
             pseudo = profiles_map.get(other_id, "Joueur")
-
-            name_col, cancel_col = st.columns(
-                [3, 1.5]
-            )
+            name_col, accept_col, reject_col = st.columns([3, 1.3, 1.3])
 
             with name_col:
-                st.write(f"@{pseudo}")
+                st.write(f"**@{pseudo}**")
 
-            with cancel_col:
+            with accept_col:
                 if st.button(
-                    "Annuler",
-                    key=f"cancel_{relation['id']}",
+                    "✅",
+                    key=f"accept_{relation['id']}",
+                    help="Accepter",
                     width="stretch"
                 ):
                     try:
-                        cancel_friend_request(
-                            relation["id"]
-                        )
-                        st.rerun()
+                        accept_friend_request(relation["id"])
+                        st.toast(f"@{pseudo} est maintenant ton ami.")
+                        st.rerun(scope="fragment")
                     except Exception as e:
-                        st.error(
-                            f"Impossible d'annuler : {e}"
-                        )
+                        st.error(f"Impossible d'accepter : {e}")
 
+            with reject_col:
+                if st.button(
+                    "✕",
+                    key=f"reject_{relation['id']}",
+                    help="Refuser",
+                    width="stretch"
+                ):
+                    try:
+                        reject_friend_request(relation["id"])
+                        st.rerun(scope="fragment")
+                    except Exception as e:
+                        st.error(f"Impossible de refuser : {e}")
 
+        st.divider()
+        st.markdown(f"### 🤝 Mes amis ({len(accepted)})")
+
+        if not accepted:
+            st.info(
+                "Tu n'as pas encore d'amis sur PiedDex. "
+                "Recherche un pseudo pour commencer."
+            )
+
+        for relation in accepted:
+            other_id = friend_other_user_id(relation)
+            pseudo = profiles_map.get(other_id, "Joueur")
+            name_col, action_col = st.columns([4, 1.5])
+
+            with name_col:
+                st.write(f"🟢 **@{pseudo}**")
+
+            with action_col:
+                if st.button(
+                    "Retirer",
+                    key=f"remove_friend_{relation['id']}",
+                    width="stretch"
+                ):
+                    try:
+                        remove_friend(relation["id"])
+                        st.rerun(scope="fragment")
+                    except Exception as e:
+                        st.error(f"Impossible de retirer cet ami : {e}")
+
+        st.divider()
+        with st.expander(f"⏳ Demandes envoyées ({len(outgoing)})"):
+            if not outgoing:
+                st.caption("Aucune demande envoyée en attente.")
+
+            for relation in outgoing:
+                other_id = friend_other_user_id(relation)
+                pseudo = profiles_map.get(other_id, "Joueur")
+                name_col, cancel_col = st.columns([3, 1.5])
+
+                with name_col:
+                    st.write(f"@{pseudo}")
+
+                with cancel_col:
+                    if st.button(
+                        "Annuler",
+                        key=f"cancel_{relation['id']}",
+                        width="stretch"
+                    ):
+                        try:
+                            cancel_friend_request(relation["id"])
+                            st.rerun(scope="fragment")
+                        except Exception as e:
+                            st.error(f"Impossible d'annuler : {e}")
+
+    live_friendships()
 
 
 # ============================================================
-# ÉCHANGES — CRÉER / OUVRIR
+# ÉCHANGES — ACTUALISATION AUTOMATIQUE TOUTES LES 5 SECONDES
 # ============================================================
 
 with tab_trades:
 
     st.subheader("🔄 Échanges")
-
     st.caption(
         "Crée un salon avec un ami ou reprends un échange déjà ouvert."
     )
-
-    # --------------------------------------------------------
-    # CRÉER UN NOUVEL ÉCHANGE
-    # --------------------------------------------------------
+    st.caption("🔄 Les échanges s’actualisent automatiquement toutes les 5 secondes.")
 
     st.markdown("### ➕ Nouvel échange")
 
     friendships = get_friendships()
-    _, _, accepted_friendships = split_friendships(
-        friendships
-    )
-
+    _, _, accepted_friendships = split_friendships(friendships)
     accepted_friend_ids = [
         friend_other_user_id(relation)
         for relation in accepted_friendships
     ]
-
-    friend_profiles = get_profiles_map(
-        accepted_friend_ids
-    )
+    friend_profiles = get_profiles_map(accepted_friend_ids)
 
     if not accepted_friend_ids:
         st.info(
             "Tu dois d'abord avoir au moins un ami accepté "
             "pour créer un échange."
         )
-
     else:
-        # Liste lisible pseudo -> user_id.
         friend_choices = {}
-
         for friend_id in accepted_friend_ids:
-            pseudo = friend_profiles.get(
-                friend_id,
-                "Joueur"
-            )
-            friend_choices[
-                f"@{pseudo}"
-            ] = friend_id
+            pseudo = friend_profiles.get(friend_id, "Joueur")
+            friend_choices[f"@{pseudo}"] = friend_id
 
         selected_friend_label = st.selectbox(
             "Choisir un ami",
@@ -2597,150 +2554,90 @@ with tab_trades:
             key="create_trade_button",
             width="stretch"
         ):
-            friend_id = friend_choices[
-                selected_friend_label
-            ]
-
+            friend_id = friend_choices[selected_friend_label]
             try:
-                with st.spinner(
-                    "Création du salon..."
-                ):
-                    trade_id = (
-                        create_trade_with_friend(
-                            friend_id
-                        )
-                    )
-
-                st.success(
-                    f"Salon ouvert avec {selected_friend_label}."
-                )
+                with st.spinner("Création du salon..."):
+                    trade_id = create_trade_with_friend(friend_id)
 
                 st.session_state.selected_trade_id = (
-                    str(trade_id)
-                    if trade_id
-                    else None
+                    str(trade_id) if trade_id else None
                 )
-
-                time.sleep(0.35)
+                st.success(f"Salon ouvert avec {selected_friend_label}.")
+                time.sleep(0.2)
                 st.rerun()
 
             except Exception as e:
                 message = str(e)
-
                 if "open trade already exists" in message.lower():
                     st.warning(
                         "Tu as déjà un échange ouvert avec cet ami. "
                         "Ouvre-le dans la liste ci-dessous."
                     )
-
                 elif "accepted friend" in message.lower():
-                    st.warning(
-                        "Cet utilisateur n'est pas un ami accepté."
-                    )
-
+                    st.warning("Cet utilisateur n'est pas un ami accepté.")
                 else:
-                    st.error(
-                        f"Impossible de créer l'échange : {e}"
-                    )
+                    st.error(f"Impossible de créer l'échange : {e}")
 
     st.divider()
 
-    # --------------------------------------------------------
-    # ÉCHANGES OUVERTS
-    # --------------------------------------------------------
+    @st.fragment(run_every="5s")
+    def live_open_trades():
+        if st.button(
+            "🔄 Actualiser maintenant",
+            key="refresh_trades_now",
+            width="stretch"
+        ):
+            st.rerun(scope="fragment")
 
-    open_trades = get_open_trades()
+        open_trades = get_open_trades()
+        st.markdown(f"### 📬 Échanges ouverts ({len(open_trades)})")
 
-    st.markdown(
-        f"### 📬 Échanges ouverts ({len(open_trades)})"
-    )
+        if not open_trades:
+            st.info("Aucun échange ouvert pour le moment.")
+            return
 
-    if not open_trades:
-        st.info(
-            "Aucun échange ouvert pour le moment."
-        )
-
-    else:
-        other_ids = [
-            trade_other_user_id(trade)
-            for trade in open_trades
-        ]
-
-        trade_profiles = get_profiles_map(
-            other_ids
-        )
+        other_ids = [trade_other_user_id(trade) for trade in open_trades]
+        trade_profiles = get_profiles_map(other_ids)
 
         for trade in open_trades:
-            other_id = trade_other_user_id(
-                trade
-            )
-
-            pseudo = trade_profiles.get(
-                other_id,
-                "Joueur"
-            )
-
+            other_id = trade_other_user_id(trade)
+            pseudo = trade_profiles.get(other_id, "Joueur")
             me_is_player_1 = (
                 str(trade.get("player_1_id"))
                 == st.session_state.user_id
             )
-
             my_ready = (
                 bool(trade.get("player_1_ready"))
                 if me_is_player_1
                 else bool(trade.get("player_2_ready"))
             )
-
             friend_ready = (
                 bool(trade.get("player_2_ready"))
                 if me_is_player_1
                 else bool(trade.get("player_1_ready"))
             )
 
-            with st.container(
-                border=True
-            ):
-                name_col, status_col = st.columns(
-                    [3.5, 2]
-                )
-
+            with st.container(border=True):
+                name_col, status_col = st.columns([3.5, 2])
                 with name_col:
-                    st.markdown(
-                        f"**🔄 @{pseudo}**"
-                    )
-
-                    created = str(
-                        trade.get("created_at", "")
-                    )
-
+                    st.markdown(f"**🔄 @{pseudo}**")
+                    created = str(trade.get("created_at", ""))
                     if created:
-                        st.caption(
-                            f"Ouvert le {created[:10]}"
-                        )
+                        st.caption(f"Ouvert le {created[:10]}")
 
                 with status_col:
-                    st.caption(
-                        "Toi : ✅"
-                        if my_ready
-                        else "Toi : ⏳"
-                    )
-                    st.caption(
-                        "Ami : ✅"
-                        if friend_ready
-                        else "Ami : ⏳"
-                    )
+                    st.caption("Toi : ✅" if my_ready else "Toi : ⏳")
+                    st.caption("Ami : ✅" if friend_ready else "Ami : ⏳")
 
                 if st.button(
                     "OUVRIR LE SALON",
                     key=f"open_trade_{trade['id']}",
                     width="stretch"
                 ):
-                    st.session_state.selected_trade_id = (
-                        str(trade["id"])
-                    )
-                    show_trade_lobby(
-                        trade
-                    )
+                    st.session_state.selected_trade_id = str(trade["id"])
+                    show_trade_lobby(trade)
+
+    live_open_trades()
 
 
 # ============================================================
