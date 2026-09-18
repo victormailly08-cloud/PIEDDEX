@@ -237,48 +237,35 @@ def capture_index(capture):
 
 def calculate_esthetic(data):
     """
-    Esthétique :
-    30 % soin général
-    30 % ongles / pédicure
-    25 % harmonie visuelle
-    15 % aspect visible de la peau
+    Esthétique PiedDex — utilise toute l'échelle 0 à 10.
+    Le poids principal est donné aux proportions et à la forme des orteils.
     """
-    soin = clamp_score(data["soin_general"])
-    ongles = clamp_score(data["ongles_pedicure"])
-    harmonie = clamp_score(data["harmonie"])
-    peau = clamp_score(data["peau"])
+    proportions = clamp_score(data.get("proportions_harmonie", 0))
+    orteils = clamp_score(data.get("forme_orteils", 0))
+    pedicure = clamp_score(data.get("ongles_pedicure", 0))
+    peau = clamp_score(data.get("peau", 0))
+    pilosite = clamp_score(data.get("pilosite_esthetique", 0))
+    mise_en_valeur = clamp_score(data.get("mise_en_valeur", 0))
 
     esthetique = (
-        soin * 0.30
-        + ongles * 0.30
-        + harmonie * 0.25
-        + peau * 0.15
+        proportions * 0.35
+        + orteils * 0.20
+        + pedicure * 0.20
+        + peau * 0.10
+        + pilosite * 0.10
+        + mise_en_valeur * 0.05
     )
 
-    # Plafonds anti-inflation
-    if min(soin, ongles, harmonie, peau) < 4.0:
-        esthetique = min(esthetique, 6.4)
-
-    if ongles < 5.0 or soin < 5.0:
-        esthetique = min(esthetique, 7.0)
-
-    high_criteria = sum(
-        score >= 8.5
-        for score in [soin, ongles, harmonie, peau]
-    )
-    if high_criteria < 3:
-        esthetique = min(esthetique, 8.4)
-
-    return round(esthetique, 1)
+    return round(clamp_score(esthetique), 1)
 
 
 def calculate_index(esthetique, originalite):
+    # L'esthétique domine nettement ; l'originalité reste un bonus secondaire.
     return round(
-        clamp_score(esthetique) * 0.70
-        + clamp_score(originalite) * 0.30,
+        clamp_score(esthetique) * 0.85
+        + clamp_score(originalite) * 0.15,
         1
     )
-
 
 def rarity_name(indice, analysis=None):
     """
@@ -425,52 +412,93 @@ def analyse_pied(photo_bytes):
     encoded = base64.b64encode(compressed).decode("utf-8")
 
     prompt = """
-Tu es le scanner visuel d'un jeu humoristique appelé PiedDex.
+Tu es le scanner visuel du jeu humoristique PiedDex.
 
-TA MISSION EST STRICTE ET EN DEUX TEMPS.
+OBJECTIF
+Évalue le pied selon le BARÈME ESTHÉTIQUE PROPRE AU JEU. Ce score est une
+appréciation visuelle ludique, pas une mesure objective de la valeur d'une personne.
+Utilise réellement toute l'échelle 0 à 10 : ne ramène pas automatiquement les pieds
+vers 5.
 
-1) VALIDATION DE LA PHOTO
-Vérifie si l'image montre clairement au moins un pied humain réel, découvert,
-suffisamment grand dans l'image et suffisamment net pour être évalué.
+1) VALIDATION
+La photo doit montrer clairement au moins un pied humain réel, découvert, assez grand,
+net et suffisamment visible pour évaluer sa forme et ses orteils.
 
-Retourne photo_valide=false si :
+photo_valide=false si :
 - aucun pied humain n'est visible ;
-- on voit seulement une chaussure ou une chaussette qui cache le pied ;
-- le pied est trop petit, trop flou, trop sombre ou largement masqué ;
-- l'image ne permet pas de juger les critères visuels.
+- chaussure ou chaussette masque le pied ;
+- pied trop petit, flou, sombre ou largement masqué ;
+- proportions et orteils ne sont pas suffisamment visibles.
 
-Si aucun pied n'est détecté, type_refus doit être "pas_de_pied".
-Si un pied existe mais que la photo est inexploitable, type_refus doit être
-"mauvaise_photo".
+type_refus="pas_de_pied" si aucun pied n'est détecté.
+type_refus="mauvaise_photo" si un pied existe mais que l'image est inexploitable.
 
-2) NOTATION SI LA PHOTO EST VALIDE
-Note UNIQUEMENT ce qui est réellement visible, sans diagnostic médical,
-sans déduire l'âge, l'identité, l'origine, le sexe ou toute autre information
-personnelle.
+2) NOTATION
+Évalue UNIQUEMENT les caractéristiques réellement visibles. Aucun diagnostic médical,
+aucune déduction d'âge, identité, origine, sexe ou autre caractéristique personnelle.
 
-Attribue une note de 0.0 à 10.0 à :
-- soin_general : impression visuelle de propreté et de soin ;
-- ongles_pedicure : coupe, régularité, entretien et présentation visible des ongles ;
-- harmonie : équilibre visuel du pied et des orteils, régularité d'ensemble ;
-- peau : aspect visuel général de la peau uniquement, sans diagnostic ;
-- originalite : caractère visuellement distinctif non médical ;
-- qualite_photo : netteté, cadrage, lumière et visibilité.
+Retourne six critères esthétiques de 0.0 à 10.0 :
 
-CALIBRATION OBLIGATOIRE :
-5/10 = pied ordinaire / moyen sur ce critère.
-6/10 = légèrement au-dessus de la moyenne.
-7/10 = clairement remarquable.
-8/10 = exceptionnel.
-9/10 = extrêmement remarquable et peu courant.
-10/10 = quasi parfait sur le critère ; à utiliser exceptionnellement.
+proportions_harmonie :
+Critère MAJEUR. Proportions générales, progression et longueur relative des orteils,
+équilibre visuel, alignement et homogénéité de l'ensemble. Des proportions très
+harmonieuses peuvent approcher 9-10. Des proportions très déséquilibrées doivent
+réellement pouvoir descendre vers 0-3.
 
-Ne sois PAS généreux par défaut.
-Une photo correcte d'un pied normal et propre ne doit pas recevoir 8 ou 9.
-La majorité des pieds ordinaires doivent se situer environ entre 4.5 et 6.5
-sur les critères esthétiques.
-L'originalité ne signifie pas "beau" : un pied très classique doit rester
-autour de 4-5 en originalité même s'il est très bien entretenu.
-N'augmente jamais l'originalité à cause d'une anomalie médicale supposée.
+forme_orteils :
+Forme et disposition visibles des orteils. Favorise des orteils visuellement
+proportionnés, distincts, réguliers et bien disposés. Pénalise fortement des orteils
+très comprimés, boudinés, visiblement écrasés, fortement chevauchés ou excessivement
+longs relativement au pied. Ne considère jamais une pathologie supposée.
+
+ongles_pedicure :
+Présentation des ongles : coupe, régularité, propreté visuelle, finition et pédicure.
+Une pédicure particulièrement réussie peut recevoir une excellente note. L'absence de
+vernis n'est pas en elle-même un défaut si les ongles sont très bien présentés.
+
+peau :
+Aspect visuel de la peau : homogénéité apparente, présentation et soin visible,
+sans diagnostic médical.
+
+pilosite_esthetique :
+Selon le barème esthétique PiedDex, peu ou pas de pilosité visible obtient une note
+élevée. Une pilosité très visible, particulièrement sur les orteils, réduit ce critère.
+Évalue uniquement ce qui est visible.
+
+mise_en_valeur :
+Présentation esthétique supplémentaire. Une belle pédicure coordonnée, un bracelet de
+cheville, des bagues d'orteils ou d'autres détails esthétiques visibles et harmonieux
+peuvent améliorer ce critère. Sans accessoire, attribue une note neutre selon la
+présentation : l'absence de bijou ne doit jamais suffire à rendre un beau pied moyen.
+
+originalite :
+0-10, caractère visuellement distinctif du spécimen. Originalité n'est PAS synonyme
+de beauté et ne doit pas compenser une faible esthétique.
+
+qualite_photo :
+0-10, netteté, cadrage, lumière et visibilité utiles à l'analyse.
+
+CALIBRATION OBLIGATOIRE
+0-1 : extrêmement faible sur le critère.
+1-3 : nettement faible / très peu harmonieux selon le barème.
+3-4.5 : sous la moyenne.
+4.5-5.5 : moyen / ordinaire.
+5.5-7 : agréable, au-dessus de la moyenne.
+7-8.5 : très beau / très harmonieux.
+8.5-9.3 : remarquable et rare.
+9.3-10 : exceptionnel ; possible lorsque les caractéristiques visibles le justifient.
+
+IMPORTANT :
+- N'utilise PAS 5 comme valeur refuge.
+- Un critère manifestement mauvais doit pouvoir recevoir 1, 2 ou 3.
+- Un critère manifestement excellent doit pouvoir recevoir 8, 9 ou exceptionnellement 10.
+- Ne sur-note pas par politesse.
+- Ne sous-note pas artificiellement pour rendre les bonnes notes impossibles.
+- Compare chaque critère au barème ci-dessus.
+- Une bonne qualité photo n'améliore pas l'esthétique : elle sert seulement à permettre
+  une évaluation fiable.
+- Bijoux et pédicure sont des bonus de présentation, jamais une compensation totale
+  pour des proportions ou une forme d'orteils peu harmonieuses.
 
 Réponds UNIQUEMENT avec un objet JSON valide, sans markdown.
 
@@ -485,10 +513,12 @@ Si valide :
 {
   "photo_valide": true,
   "type_refus": null,
-  "soin_general": 0.0,
+  "proportions_harmonie": 0.0,
+  "forme_orteils": 0.0,
   "ongles_pedicure": 0.0,
-  "harmonie": 0.0,
   "peau": 0.0,
+  "pilosite_esthetique": 0.0,
+  "mise_en_valeur": 0.0,
   "originalite": 0.0,
   "qualite_photo": 0.0,
   "description": "une phrase courte, amusante mais non insultante"
@@ -531,14 +561,28 @@ Si valide :
         }
 
     for key in [
-        "soin_general",
+        "proportions_harmonie",
+        "forme_orteils",
         "ongles_pedicure",
-        "harmonie",
         "peau",
+        "pilosite_esthetique",
+        "mise_en_valeur",
         "originalite",
         "qualite_photo",
     ]:
         data[key] = clamp_score(data.get(key, 0))
+
+    # Compatibilité avec les anciennes colonnes / anciens écrans.
+    # Ces deux valeurs restent alimentées pour ne pas casser le reste de l'app.
+    data["harmonie"] = data["proportions_harmonie"]
+    data["soin_general"] = round(
+        clamp_score(
+            data["ongles_pedicure"] * 0.55
+            + data["peau"] * 0.25
+            + data["pilosite_esthetique"] * 0.20
+        ),
+        1
+    )
 
     if data["qualite_photo"] < 4.5:
         return {
@@ -1657,7 +1701,7 @@ def show_specimen(capture):
 
             with d2:
                 st.metric(
-                    "Harmonie",
+                    "Proportions / harmonie",
                     f"{float(capture['harmonie']):.1f}/10"
                 )
                 st.metric(
@@ -2132,7 +2176,7 @@ with tab_capture:
 
                     with d2:
                         st.metric(
-                            "Harmonie",
+                            "Proportions / harmonie",
                             f"{analysis['harmonie']:.1f}/10"
                         )
                         st.metric(
