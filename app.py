@@ -59,6 +59,8 @@ defaults = {
     "profile_pseudo": None,
     "remember_login": False,
     "selected_trade_id": None,
+    "auth_cookie_checked": False,
+    "auth_cookie_wait_started": None,
 }
 
 for key, value in defaults.items():
@@ -648,7 +650,7 @@ def persist_refresh_token(refresh_token):
         key="set_pieddex_refresh",
         expires_at=datetime.now() + timedelta(days=REMEMBER_DAYS),
         secure=True,
-        same_site="strict",
+        same_site="lax",
         path="/",
     )
 
@@ -665,13 +667,15 @@ def delete_persistent_login():
 
 def restore_auth_session():
     """
-    1) Si Streamlit possède encore la session en mémoire, on la restaure.
-    2) Sinon, si le navigateur possède le cookie "Rester connecté",
-       Supabase échange le refresh token contre une nouvelle session.
-       Le nouveau refresh token est immédiatement remis dans le cookie
-       car Supabase fait tourner les refresh tokens.
+    Restaure la connexion Supabase.
+
+    Important : CookieManager est un composant navigateur. Lors d'une toute
+    nouvelle session Streamlit, sa valeur peut arriver un court instant après
+    le premier run Python. On lui laisse donc une petite phase d'initialisation
+    au lieu de conclure immédiatement qu'aucun cookie n'existe.
     """
-    # Session encore disponible dans Streamlit.
+
+    # 1) Session encore présente côté Streamlit.
     if (
         st.session_state.access_token
         and st.session_state.refresh_token
@@ -687,7 +691,7 @@ def restore_auth_session():
                 persist_refresh_token(
                     response.session.refresh_token
                 )
-            return
+            return True
 
         except Exception:
             st.session_state.user_id = None
@@ -695,7 +699,7 @@ def restore_auth_session():
             st.session_state.access_token = None
             st.session_state.refresh_token = None
 
-    # Nouvelle session Streamlit : tentative automatique depuis le cookie.
+    # 2) Nouvelle session Streamlit : lire le cookie persistant.
     try:
         saved_refresh_token = cookie_manager.get(
             REMEMBER_COOKIE
@@ -703,32 +707,56 @@ def restore_auth_session():
     except Exception:
         saved_refresh_token = None
 
-    if not saved_refresh_token:
-        return
-
-    try:
-        response = supabase.auth.refresh_session(
-            saved_refresh_token
-        )
-
-        if response and response.session:
-            save_auth_session(response)
-            st.session_state.remember_login = True
-
-            # Rotation du refresh token : on remplace l'ancien.
-            persist_refresh_token(
-                response.session.refresh_token
+    if saved_refresh_token:
+        try:
+            response = supabase.auth.refresh_session(
+                saved_refresh_token
             )
 
-    except Exception:
-        # Cookie expiré/révoqué : on le retire et on revient à la connexion.
-        delete_persistent_login()
+            if response and response.session:
+                save_auth_session(response)
+                st.session_state.remember_login = True
+                st.session_state.auth_cookie_checked = True
+                st.session_state.auth_cookie_wait_started = None
 
-        st.session_state.user_id = None
-        st.session_state.user_email = None
-        st.session_state.access_token = None
-        st.session_state.refresh_token = None
-        st.session_state.remember_login = False
+                # Supabase peut faire tourner le refresh token.
+                persist_refresh_token(
+                    response.session.refresh_token
+                )
+                return True
+
+        except Exception:
+            # Le token existe mais n'est réellement plus valable.
+            delete_persistent_login()
+            st.session_state.user_id = None
+            st.session_state.user_email = None
+            st.session_state.access_token = None
+            st.session_state.refresh_token = None
+            st.session_state.remember_login = False
+            st.session_state.auth_cookie_checked = True
+            st.session_state.auth_cookie_wait_started = None
+            return False
+
+    # 3) Au tout premier chargement seulement, attendre brièvement que le
+    # composant navigateur remonte ses cookies à Streamlit.
+    if not st.session_state.auth_cookie_checked:
+        now = time.time()
+
+        if st.session_state.auth_cookie_wait_started is None:
+            st.session_state.auth_cookie_wait_started = now
+            time.sleep(0.35)
+            st.rerun()
+
+        elif now - st.session_state.auth_cookie_wait_started < 1.4:
+            time.sleep(0.35)
+            st.rerun()
+
+        else:
+            # Après ~1,4 s sans cookie, on considère simplement qu'il n'y en a pas.
+            st.session_state.auth_cookie_checked = True
+            st.session_state.auth_cookie_wait_started = None
+
+    return False
 
 
 restore_auth_session()
